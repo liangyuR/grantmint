@@ -1,0 +1,188 @@
+# ══════════════════════════════════════════════════════
+# AI / Development Files (do not commit)
+# ══════════════════════════════════════════════════════
+TASKS.md
+CLAUDE.md
+AGENTS.md
+.claude/
+docs/
+
+# ══════════════════════════════════════════════════════
+# Java / Maven
+# ══════════════════════════════════════════════════════
+target/
+# Maven wrapper is distributionType=only-script: the properties file is the only
+# wrapper config and MUST be committed so ./mvnw works on a fresh checkout.
+!.mvn/wrapper/maven-wrapper.jar
+!.mvn/wrapper/maven-wrapper.properties
+dependency-reduced-pom.xml
+# jqwik writes a failure-replay database next to each module; it is a local
+# test artifact, not source.
+.jqwik-database
+release.properties
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+buildNumber.properties
+
+# Compiled class / archive files
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+*.war
+*.ear
+*.nar
+
+# JVM crash logs
+hs_err_pid*
+replay_pid*
+
+# ══════════════════════════════════════════════════════
+# GraalVM Native Image
+# ══════════════════════════════════════════════════════
+# Native build artifacts (the compiled single binary + AOT scratch)
+*.build_artifacts.txt
+reports/
+graalvm-reachability-metadata/
+
+# ══════════════════════════════════════════════════════
+# Spring Boot
+# ══════════════════════════════════════════════════════
+# Externalized / local config that may contain secrets
+application-local.properties
+application-local.yml
+application-local.yaml
+application-secret*.properties
+application-secret*.yml
+*.original
+
+# ══════════════════════════════════════════════════════
+# Frontend (React + TypeScript + Vite — dashboard)
+# ══════════════════════════════════════════════════════
+node_modules/
+dashboard/node_modules/
+dist/
+dashboard/dist/
+build/
+dashboard/build/
+
+# Vite cache
+.vite/
+dashboard/.vite/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Lint / format caches
+.eslintcache
+.prettiercache
+
+# Test coverage
+coverage/
+dashboard/coverage/
+.nyc_output/
+
+# ══════════════════════════════════════════════════════
+# Databases (PostgreSQL / SQLite — local & demo)
+# ══════════════════════════════════════════════════════
+# Grantmint v1 uses PostgreSQL + Caffeine (no SQLite mode), but keep these
+# patterns so any local/demo SQLite scratch DB never lands in history.
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+grantmint.db*
+
+# Docker volume data (local development)
+.docker-data/
+postgres-data/
+
+# Docker override (local customizations)
+docker-compose.override.yml
+
+# ══════════════════════════════════════════════════════
+# Secrets — NEVER COMMIT
+# ══════════════════════════════════════════════════════
+# The Ed25519 issuance signing key is the single most sensitive secret in a
+# Grantmint deployment — a leaked private key lets anyone mint valid licenses.
+# Never let it near version control.
+*.p12
+*.p8
+*.cer
+*.pem
+*.key
+*.pub
+*.jks
+*.keystore
+ed25519*
+signing-key*
+grantmint-private*
+service-account*.json
+authkey*.json
+credentials.*
+secrets/
+.env
+.env.*
+!.env.example
+
+# Never ignore source code. The broad key-material globs above (notably
+# ed25519* and signing-key*) otherwise swallow source files such as
+# Ed25519Signer.java on case-insensitive filesystems (core.ignorecase=true),
+# which would silently keep that core class out of every commit and break CI.
+!**/src/**/*.java
+
+# ══════════════════════════════════════════════════════
+# IDE / Editor
+# ══════════════════════════════════════════════════════
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+*.swp
+*.swo
+*~
+.mcp.json
+
+# ══════════════════════════════════════════════════════
+# macOS
+# ══════════════════════════════════════════════════════
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ══════════════════════════════════════════════════════
+# Testing / Playwright
+# ══════════════════════════════════════════════════════
+.playwright-mcp/
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
+# Test screenshots (generated)
+screenshots/**/*.png
+!screenshots/README.md
+
+# ══════════════════════════════════════════════════════
+# Logs & Temporary Files
+# ══════════════════════════════════════════════════════
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+.cache/
