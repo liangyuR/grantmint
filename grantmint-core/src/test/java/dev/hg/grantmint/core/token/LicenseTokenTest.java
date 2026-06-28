@@ -143,6 +143,32 @@ class LicenseTokenTest {
     }
 
     @Test
+    void foreignTokenTypeIsRejectedBeforeSignatureCheck() {
+        // A validly-signed token whose typ is a generic 'JWT' rather than 'GMT'. The verifier must
+        // refuse to treat a foreign token shape as a Grantmint license, before verifying the signature.
+        Map<String, Object> header = TokenHeader.forSigningKey("KP77").toMap();
+        header.put("typ", "JWT");
+        String token = signRawClaims(header, proLicense().toClaimMap());
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.WRONG_TYPE);
+    }
+
+    @Test
+    void unknownFormatVersionIsRejected() {
+        // A validly-signed token declaring a future format version (ver=2). A v1 verifier must
+        // fail closed rather than interpret an unknown claim layout as v1.
+        Map<String, Object> claims = proLicense().toClaimMap();
+        claims.put("ver", 2);
+        String token = signRawClaims(TokenHeader.forSigningKey("KP77").toMap(), claims);
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.UNSUPPORTED_VERSION);
+    }
+
+    @Test
     void outOfRangeIntegerClaimIsMalformedNotThrown() {
         // A validly-signed token whose 'ver' overflows int. Verification must return MALFORMED, never
         // propagate an ArithmeticException — it is a boolean decision over untrusted input.

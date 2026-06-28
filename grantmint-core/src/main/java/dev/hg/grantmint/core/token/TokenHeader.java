@@ -46,6 +46,17 @@ public record TokenHeader(String alg, String typ, String kid, String crv) {
         return ALG_EDDSA.equals(alg) && CRV_ED25519.equals(crv);
     }
 
+    /**
+     * Whether this header declares the Grantmint token type ({@code typ=GMT}). A correctly-signed
+     * token bearing any other {@code typ} (e.g. a generic {@code JWT}) is not a Grantmint license and
+     * is rejected — the dual {@code alg}+{@code crv} pin already closes algorithm confusion, but the
+     * {@code typ} check keeps the verifier from ever interpreting a foreign token shape as a license.
+     * See docs/features/LICENSE_TOKEN_FORMAT.md.
+     */
+    public boolean pinsExpectedType() {
+        return TYP_GMT.equals(typ);
+    }
+
     /** The claim map serialized as segment A (keys are sorted by the canonical serializer). */
     public Map<String, Object> toMap() {
         Map<String, Object> map = new LinkedHashMap<>();

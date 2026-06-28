@@ -12,7 +12,8 @@ import java.util.function.Function;
  *
  * <p>A verifier holds one or more embedded Ed25519 public keys, indexed by signing-key id so a
  * single client can validate tokens across a signing-key rotation. {@link #verifyAt} performs the
- * full offline check (structure → algorithm pinning → signature → not-before → expiry) and returns a
+ * full offline check (structure → algorithm pinning → type pinning → signature → format version →
+ * not-before → expiry) and returns a
  * {@link VerificationResult}. No step contacts a network; revocation and seat counting are
  * deliberately absent here (they require the online layer keyed by the license key ID).
  *
@@ -78,6 +79,12 @@ public final class LicenseVerifier {
             return VerificationResult.failure(FailureReason.ALG_NOT_ALLOWED);
         }
 
+        // 2b. Token-type pinning — a correctly-signed token with a foreign typ (e.g. a generic JWT) is
+        // not a Grantmint license. Checked before the signature, like the scheme pin.
+        if (!header.pinsExpectedType()) {
+            return VerificationResult.failure(FailureReason.WRONG_TYPE);
+        }
+
         // 3. Signature over the RECEIVED bytes. Unknown key id or undecodable signature => forged.
         PublicKey publicKey = resolver.apply(header.kid());
         if (publicKey == null) {
@@ -104,7 +111,14 @@ public final class LicenseVerifier {
             return VerificationResult.failure(FailureReason.MALFORMED);
         }
 
-        // 5. Temporal validity.
+        // 5. Format-version gate — the claims are authentic, but refuse to interpret a layout this
+        // verifier does not understand. Fail-closed: an unknown future version is rejected, never
+        // guessed at. (An out-of-int-range ver is already MALFORMED at parse, above.)
+        if (payload.ver() != TokenPayload.CURRENT_VERSION) {
+            return VerificationResult.failure(FailureReason.UNSUPPORTED_VERSION);
+        }
+
+        // 6. Temporal validity.
         long now = clock.nowEpochSecond();
         if (payload.nbf() != null && now < payload.nbf()) {
             return VerificationResult.failure(FailureReason.NOT_YET_VALID);
