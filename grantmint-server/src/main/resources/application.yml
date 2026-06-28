@@ -1,0 +1,16 @@
+# Grantmint server configuration (M0 skeleton).
+# Persistence (PostgreSQL + Flyway), security, caching, and webhook properties are added in
+# later milestones. Keep secrets out of this file — the Ed25519 private key is loaded from a
+# private_key_ref pointer (file 0600 / env / secret manager), never from config or the DB.
+spring:
+  application:
+    name: grantmint-server
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info

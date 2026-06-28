@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.hg.grantmint</groupId>
+        <artifactId>grantmint-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>grantmint-core</artifactId>
+    <name>Grantmint Core</name>
+    <description>Pure-Java Ed25519 crypto, signed-token build/verify, key-ID scheme, entitlement encoding. Zero framework dependencies.</description>
+
+    <licenses>
+        <license>
+            <name>GNU Affero General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/agpl-3.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <dependencies>
+        <!--
+          INTENTIONALLY no Spring / Jakarta / Jackson dependencies. grantmint-core is the
+          framework-agnostic crypto/issuance core; the ArchUnit test below fails the build
+          if that boundary is ever breached. Crypto is JDK-built-in (java.security EdDSA).
+        -->
+
+        <!-- Test-only. junit-jupiter and assertj-core versions come from the Spring Boot BOM. -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+        </dependency>
+    </dependencies>
+</project>

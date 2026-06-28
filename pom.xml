@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>dev.hg.grantmint</groupId>
+    <artifactId>grantmint-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>Grantmint</name>
+    <description>Self-hostable, single-binary license and entitlement server</description>
+    <url>https://github.com/harungungorer/grantmint</url>
+
+    <!-- The aggregate project is AGPL-3.0; the starter module overrides this to Apache-2.0. -->
+    <licenses>
+        <license>
+            <name>GNU Affero General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/agpl-3.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <modules>
+        <module>grantmint-core</module>
+        <module>grantmint-server</module>
+        <module>grantmint-spring-boot-starter</module>
+        <module>grantmint-cli</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Dependency versions not managed by the Spring Boot BOM. -->
+        <picocli.version>4.7.6</picocli.version>
+        <archunit.version>1.3.0</archunit.version>
+        <jqwik.version>1.9.1</jqwik.version>
+
+        <!-- Build-plugin versions. -->
+        <spotless.version>2.43.0</spotless.version>
+        <checkstyle.plugin.version>3.5.0</checkstyle.plugin.version>
+        <checkstyle.version>10.18.2</checkstyle.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Inter-module coordinates. -->
+            <dependency>
+                <groupId>dev.hg.grantmint</groupId>
+                <artifactId>grantmint-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!-- CLI. -->
+            <dependency>
+                <groupId>info.picocli</groupId>
+                <artifactId>picocli</artifactId>
+                <version>${picocli.version}</version>
+            </dependency>
+
+            <!-- Architecture + property tests. -->
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>net.jqwik</groupId>
+                <artifactId>jqwik</artifactId>
+                <version>${jqwik.version}</version>
+                <scope>test</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>com.diffplug.spotless</groupId>
+                    <artifactId>spotless-maven-plugin</artifactId>
+                    <version>${spotless.version}</version>
+                    <configuration>
+                        <java>
+                            <includes>
+                                <include>src/main/java/**/*.java</include>
+                                <include>src/test/java/**/*.java</include>
+                            </includes>
+                            <palantirJavaFormat>
+                                <version>2.50.0</version>
+                            </palantirJavaFormat>
+                            <removeUnusedImports/>
+                            <trimTrailingWhitespace/>
+                            <endWithNewline/>
+                        </java>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>spotless-check</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>${checkstyle.plugin.version}</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.puppycrawl.tools</groupId>
+                            <artifactId>checkstyle</artifactId>
+                            <version>${checkstyle.version}</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml</configLocation>
+                        <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                        <consoleOutput>true</consoleOutput>
+                        <failsOnError>true</failsOnError>
+                        <failOnViolation>true</failOnViolation>
+                        <violationSeverity>warning</violationSeverity>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>checkstyle-locale-lint</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
+        <plugins>
+            <!-- Format check + the Locale.ROOT lint run for every JVM module via inheritance. -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
