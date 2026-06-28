@@ -1,10 +1,30 @@
-# Grantmint server configuration (M0 skeleton).
-# Persistence (PostgreSQL + Flyway), security, caching, and webhook properties are added in
-# later milestones. Keep secrets out of this file — the Ed25519 private key is loaded from a
-# private_key_ref pointer (file 0600 / env / secret manager), never from config or the DB.
+# Grantmint server configuration.
+# Security, caching, and webhook properties are added in later milestones. Keep secrets out
+# of this file — the Ed25519 private key is loaded from a private_key_ref pointer
+# (file 0600 / env / secret manager), never from config or the DB.
 spring:
   application:
     name: grantmint-server
+
+  # PostgreSQL is the only supported datastore (never H2). Overridable via env/secret manager.
+  datasource:
+    url: ${GRANTMINT_DB_URL:jdbc:postgresql://localhost:5432/grantmint}
+    username: ${GRANTMINT_DB_USER:grantmint}
+    password: ${GRANTMINT_DB_PASSWORD:grantmint}
+
+  jpa:
+    # Flyway owns the schema; Hibernate only validates the mapping against it, never mutates it.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
 
 server:
   port: 8080
