@@ -5,8 +5,8 @@ package dev.hg.grantmint.core.token;
  *
  * <ol>
  *   <li>{@link #MALFORMED} — not three decodable base64url JSON segments;
- *   <li>{@link #ALG_NOT_ALLOWED} — header {@code alg} is not the pinned {@code EdDSA} (algorithm
- *       confusion attempt);
+ *   <li>{@link #ALG_NOT_ALLOWED} — the header does not pin the one allowed signature scheme,
+ *       {@code alg=EdDSA} over {@code crv=Ed25519} (algorithm- or curve-confusion attempt);
  *   <li>{@link #FORGED} — the Ed25519 signature does not verify against the public key (tampered,
  *       forged, or signed by an unknown key);
  *   <li>{@link #NOT_YET_VALID} — {@code now} is before {@code nbf};

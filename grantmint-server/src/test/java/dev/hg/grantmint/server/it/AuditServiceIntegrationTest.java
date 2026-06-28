@@ -43,6 +43,23 @@ class AuditServiceIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void recordsTheRequestIpAddressAsInet() {
+        AuditLog saved = auditService.record(
+                "admin@example.com",
+                AuditActorType.ADMIN,
+                "license.revoked",
+                "license",
+                "K7P2-9QXM-4T1A",
+                Map.of("reason", "chargeback"),
+                "203.0.113.7");
+
+        assertThat(saved.getIpAddress()).isEqualTo("203.0.113.7");
+
+        var reloaded = auditLog.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.getIpAddress()).isEqualTo("203.0.113.7");
+    }
+
+    @Test
     void auditRowSurvivesWithLooseUnconstrainedTargetReference() {
         // target_id points at a free-form id that need not exist as a row — no FK.
         String orphanTarget = "policy-that-will-be-deleted";

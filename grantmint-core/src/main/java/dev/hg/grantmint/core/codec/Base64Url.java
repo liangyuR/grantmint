@@ -23,9 +23,19 @@ public final class Base64Url {
         return ENCODER.encodeToString(bytes);
     }
 
-    /** Decode padding-free URL-safe Base64 (the decoder also tolerates padding if present). */
+    /**
+     * Decode padding-free URL-safe Base64.
+     *
+     * <p>Padding is part of the wire contract: tokens are emitted without {@code =}, and a padded
+     * segment is an alternate encoding that would break byte-for-byte parity with the Swift and Go
+     * verifiers. Such input is rejected ({@link IllegalArgumentException}) rather than silently
+     * accepted, which callers surface as a malformed token.
+     */
     public static byte[] decode(String text) {
         Objects.requireNonNull(text, "text");
+        if (text.indexOf('=') >= 0) {
+            throw new IllegalArgumentException("Base64URL segment must not contain '=' padding");
+        }
         return DECODER.decode(text);
     }
 }

@@ -30,6 +30,11 @@ public interface MachineActivationRepository extends JpaRepository<MachineActiva
     /**
      * Heartbeat-timeout sweep candidates: active activations whose last heartbeat is older than the
      * given cutoff. The per-policy timeout (3× the heartbeat interval) is computed by the job (M7).
+     *
+     * <p>This takes a single, already-computed cutoff and so is only correct when the caller has
+     * applied a uniform timeout. Because policies may set different {@code heartbeat_interval_seconds},
+     * the sweep job (M7) must either pass the most-permissive (largest) effective cutoff or iterate
+     * per policy — this query intentionally stays policy-agnostic.
      */
     @Query("select a from MachineActivation a" + " where a.status = 'active' and a.lastHeartbeatAt < :cutoff")
     List<MachineActivation> findStaleActive(@Param("cutoff") OffsetDateTime cutoff);

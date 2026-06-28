@@ -24,8 +24,9 @@ public class AuditService {
     }
 
     /**
-     * Append an audit entry. Participates in the caller's transaction so the trail stays consistent
-     * with the action it records (if the action rolls back, so does its audit row).
+     * Append an audit entry, capturing the originating request IP. Participates in the caller's
+     * transaction so the trail stays consistent with the action it records (if the action rolls back,
+     * so does its audit row).
      *
      * @param actor who acted — an admin username, an API-key id, or e.g. {@code webhook:stripe}
      * @param actorType the category of actor
@@ -33,6 +34,8 @@ public class AuditService {
      * @param targetType the kind of entity acted upon, e.g. {@code license}
      * @param targetId the target's identifier (nullable for non-entity actions)
      * @param detail action-specific structured data (nullable → recorded as empty)
+     * @param ipAddress the originating request IP (nullable for system/background actions); stored as
+     *     PostgreSQL {@code inet}
      */
     @Transactional
     public AuditLog record(
@@ -41,7 +44,8 @@ public class AuditService {
             String action,
             String targetType,
             String targetId,
-            Map<String, Object> detail) {
+            Map<String, Object> detail,
+            String ipAddress) {
         AuditLog entry = new AuditLog();
         entry.setActor(actor);
         entry.setActorType(actorType.wire());
@@ -51,12 +55,25 @@ public class AuditService {
         if (detail != null && !detail.isEmpty()) {
             entry.setDetail(detail);
         }
+        entry.setIpAddress(ipAddress);
         return repository.save(entry);
+    }
+
+    /** Overload for actions where the request IP is not available (e.g. background jobs). */
+    @Transactional
+    public AuditLog record(
+            String actor,
+            AuditActorType actorType,
+            String action,
+            String targetType,
+            String targetId,
+            Map<String, Object> detail) {
+        return record(actor, actorType, action, targetType, targetId, detail, null);
     }
 
     /** Convenience overload for actions with no structured detail. */
     @Transactional
     public AuditLog record(String actor, AuditActorType actorType, String action, String targetType, String targetId) {
-        return record(actor, actorType, action, targetType, targetId, Map.of());
+        return record(actor, actorType, action, targetType, targetId, Map.of(), null);
     }
 }

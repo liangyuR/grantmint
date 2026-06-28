@@ -88,7 +88,12 @@ public final class EntitlementSet {
             return Entitlement.limit(key, i.longValue());
         }
         if (value instanceof BigInteger bi) {
-            return Entitlement.limit(key, bi.longValueExact());
+            try {
+                return Entitlement.limit(key, bi.longValueExact());
+            } catch (ArithmeticException overflow) {
+                throw new IllegalArgumentException(
+                        "Entitlement limit '" + key + "' exceeds the supported 64-bit range", overflow);
+            }
         }
         if (value instanceof String s) {
             return Entitlement.string(key, s);

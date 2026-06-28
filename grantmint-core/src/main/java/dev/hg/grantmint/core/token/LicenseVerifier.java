@@ -68,13 +68,13 @@ public final class LicenseVerifier {
         try {
             parts = SignedToken.parse(token);
             header = TokenCodec.decodeHeader(parts.headerSegment());
-        } catch (MalformedTokenException | IllegalArgumentException e) {
+        } catch (MalformedTokenException | IllegalArgumentException | ArithmeticException e) {
             // Wrong segment count, undecodable base64/JSON, or a header missing required string fields.
             return VerificationResult.failure(FailureReason.MALFORMED);
         }
 
-        // 2. Algorithm pinning — reject anything but EdDSA before touching the signature.
-        if (!header.isAlgorithmAllowed()) {
+        // 2. Signature-scheme pinning — reject anything but EdDSA/Ed25519 before touching the signature.
+        if (!header.pinsAllowedSignatureScheme()) {
             return VerificationResult.failure(FailureReason.ALG_NOT_ALLOWED);
         }
 
@@ -93,11 +93,14 @@ public final class LicenseVerifier {
             return VerificationResult.failure(FailureReason.FORGED);
         }
 
-        // 4. Claims are now trustworthy — parse them.
+        // 4. Claims are now trustworthy — parse them. Any structural, type, or out-of-range claim
+        // (e.g. a fractional or oversized integer) is a malformed token, never a thrown exception:
+        // verification is a boolean decision. TokenCodec already maps these to MalformedTokenException;
+        // the broad catch here is defence-in-depth for the correctness boundary.
         TokenPayload payload;
         try {
             payload = TokenCodec.decodePayload(parts.payloadSegment());
-        } catch (MalformedTokenException | IllegalArgumentException e) {
+        } catch (MalformedTokenException | IllegalArgumentException | ArithmeticException e) {
             return VerificationResult.failure(FailureReason.MALFORMED);
         }
 

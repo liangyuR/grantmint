@@ -28,12 +28,25 @@ public final class TokenCodec {
 
     /** Decode segment A into a header. */
     public static TokenHeader decodeHeader(String segment) {
-        return TokenHeader.fromMap(decodeObject(segment, "header"));
+        Map<String, Object> object = decodeObject(segment, "header");
+        try {
+            return TokenHeader.fromMap(object);
+        } catch (IllegalArgumentException | ArithmeticException e) {
+            // Missing/mistyped or out-of-range header fields — an untrusted, malformed token.
+            throw new MalformedTokenException("Token header has invalid claims", e);
+        }
     }
 
     /** Decode segment B into a payload. */
     public static TokenPayload decodePayload(String segment) {
-        return TokenPayload.fromClaimMap(decodeObject(segment, "payload"));
+        Map<String, Object> object = decodeObject(segment, "payload");
+        try {
+            return TokenPayload.fromClaimMap(object);
+        } catch (IllegalArgumentException | ArithmeticException e) {
+            // Mistyped, fractional, or out-of-range claims (e.g. an oversized ver/seat or entitlement
+            // limit) — a malformed token, not an exceptional condition. Decoding stays a total function.
+            throw new MalformedTokenException("Token payload has invalid claims", e);
+        }
     }
 
     @SuppressWarnings("unchecked")

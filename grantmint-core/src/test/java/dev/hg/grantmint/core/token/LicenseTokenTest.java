@@ -9,6 +9,8 @@ import dev.hg.grantmint.core.crypto.Ed25519Signer;
 import dev.hg.grantmint.core.entitlement.Entitlement;
 import dev.hg.grantmint.core.entitlement.EntitlementSet;
 import dev.hg.grantmint.core.time.Clock;
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -125,6 +127,93 @@ class LicenseTokenTest {
         VerificationResult result =
                 LicenseVerifier.verifyAt("not-a-token", keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
         assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
+    void curveConfusionIsRejectedBeforeSignatureCheck() {
+        // A header with a contradictory curve, validly signed over its own bytes. The verifier must
+        // pin crv=Ed25519 (not just alg) and reject it as ALG_NOT_ALLOWED before verifying the signature.
+        Map<String, Object> header = TokenHeader.forSigningKey("KP77").toMap();
+        header.put("crv", "P-256");
+        String token = signRawClaims(header, proLicense().toClaimMap());
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.ALG_NOT_ALLOWED);
+    }
+
+    @Test
+    void outOfRangeIntegerClaimIsMalformedNotThrown() {
+        // A validly-signed token whose 'ver' overflows int. Verification must return MALFORMED, never
+        // propagate an ArithmeticException — it is a boolean decision over untrusted input.
+        Map<String, Object> claims = proLicense().toClaimMap();
+        claims.put("ver", 9_999_999_999L);
+        String token = signRawClaims(TokenHeader.forSigningKey("KP77").toMap(), claims);
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result).isNotNull();
+        assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
+    void oversizedEntitlementLimitIsMalformedNotThrown() {
+        // A validly-signed token whose entitlement limit exceeds the 64-bit range. longValueExact must
+        // not leak an ArithmeticException out of verification.
+        Map<String, Object> claims = proLicense().toClaimMap();
+        Map<String, Object> ent = new LinkedHashMap<>();
+        ent.put("max_devices", new BigInteger("99999999999999999999"));
+        claims.put("ent", ent);
+        String token = signRawClaims(TokenHeader.forSigningKey("KP77").toMap(), claims);
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
+    void fractionalTimestampClaimIsMalformed() {
+        // CanonicalJson never emits a float, but a forged payload could carry one. A validly-signed
+        // token with exp=1.5 must be MALFORMED, not silently truncated to a whole second.
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}";
+        String payloadJson = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"p\",\"pol\":\"po\","
+                + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + IAT + ",\"exp\":1.5,\"ent\":{}}";
+        String token = signRawJson(headerJson, payloadJson);
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
+    void paddedSegmentIsMalformed() {
+        // Padding is outside the wire contract; a '='-padded segment must be rejected, not tolerated.
+        String[] segments = issuer.sign(proLicense()).split("\\.");
+        String paddedHeader = segments[0] + "=." + segments[1] + "." + segments[2];
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(paddedHeader, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    /** Sign an arbitrary header+payload claim map (canonical JSON) under the test key — for forging edge cases. */
+    private String signRawClaims(Map<String, Object> header, Map<String, Object> payload) {
+        String headerSegment = Base64Url.encode(CanonicalJson.serialize(header));
+        String payloadSegment = Base64Url.encode(CanonicalJson.serialize(payload));
+        return assembleSigned(headerSegment, payloadSegment);
+    }
+
+    /** Sign arbitrary raw JSON bytes (for shapes CanonicalJson refuses to emit, e.g. a float claim). */
+    private String signRawJson(String headerJson, String payloadJson) {
+        String headerSegment = Base64Url.encode(headerJson.getBytes(StandardCharsets.UTF_8));
+        String payloadSegment = Base64Url.encode(payloadJson.getBytes(StandardCharsets.UTF_8));
+        return assembleSigned(headerSegment, payloadSegment);
+    }
+
+    private String assembleSigned(String headerSegment, String payloadSegment) {
+        byte[] signature = new Ed25519Signer(keyPair.getPrivate(), "KP77")
+                .sign((headerSegment + "." + payloadSegment).getBytes(StandardCharsets.US_ASCII));
+        return headerSegment + "." + payloadSegment + "." + Base64Url.encode(signature);
     }
 
     private TokenPayload proLicense() {

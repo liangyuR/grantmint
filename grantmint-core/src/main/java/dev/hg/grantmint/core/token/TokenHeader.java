@@ -36,6 +36,16 @@ public record TokenHeader(String alg, String typ, String kid, String crv) {
         return ALG_EDDSA.equals(alg);
     }
 
+    /**
+     * Whether this header pins the one allowed signature scheme: {@code EdDSA} over the {@code
+     * Ed25519} curve. Verifiers reject anything else <em>before</em> touching the signature, closing
+     * both the classic JWT algorithm-confusion hole ({@code none}, {@code RS256}, …) and a
+     * curve-mismatch claim. See docs/features/LICENSE_TOKEN_FORMAT.md.
+     */
+    public boolean pinsAllowedSignatureScheme() {
+        return ALG_EDDSA.equals(alg) && CRV_ED25519.equals(crv);
+    }
+
     /** The claim map serialized as segment A (keys are sorted by the canonical serializer). */
     public Map<String, Object> toMap() {
         Map<String, Object> map = new LinkedHashMap<>();

@@ -1,6 +1,7 @@
 package dev.hg.grantmint.core.token;
 
 import dev.hg.grantmint.core.entitlement.EntitlementSet;
+import java.math.BigInteger;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -128,7 +129,7 @@ public record TokenPayload(
         if (!(map.get(key) instanceof Number n)) {
             throw new IllegalArgumentException("Claim '" + key + "' must be a number");
         }
-        return n.longValue();
+        return toExactLong(n, key);
     }
 
     private static Long asLongOrNull(Map<String, ?> map, String key) {
@@ -139,7 +140,28 @@ public record TokenPayload(
         if (!(v instanceof Number n)) {
             throw new IllegalArgumentException("Claim '" + key + "' must be a number or null");
         }
-        return n.longValue();
+        return toExactLong(n, key);
+    }
+
+    /**
+     * Token times and counters are integers (Unix epoch seconds, version, seat). Accept only the
+     * integral types the canonical JSON parser yields ({@link Long}/{@link Integer}/{@link
+     * BigInteger}) so a fractional value is rejected as malformed rather than silently truncated, and
+     * an out-of-{@code long}-range value surfaces as an {@link ArithmeticException} the codec maps to
+     * a malformed token.
+     */
+    private static long toExactLong(Number n, String key) {
+        if (n instanceof Long l) {
+            return l;
+        }
+        if (n instanceof Integer i) {
+            return i.longValue();
+        }
+        if (n instanceof BigInteger bi) {
+            return bi.longValueExact();
+        }
+        throw new IllegalArgumentException(
+                "Claim '" + key + "' must be an integer, not " + n.getClass().getSimpleName());
     }
 
     private static int asInt(Map<String, ?> map, String key) {

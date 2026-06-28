@@ -30,7 +30,7 @@ class LicenseTokenPropertyTest {
     private static final SecureRandom RNG = new SecureRandom();
 
     /** M1: any issued token verifies offline against its public key, and its entitlements survive. */
-    @Property(tries = 300)
+    @Property(tries = 2000)
     void issuedTokenVerifiesAndEntitlementsSurvive(@ForAll("validPayloads") Generated generated) {
         KeyPair keyPair = Ed25519Keys.generate(RNG);
         LicenseTokenIssuer issuer = new LicenseTokenIssuer(new Ed25519Signer(keyPair.getPrivate(), "K1"));
@@ -57,7 +57,7 @@ class LicenseTokenPropertyTest {
      * an alternate encoding of the <em>same</em> signature that (correctly) still verifies. Meaningful
      * signature corruption is covered by {@link #corruptingSignatureSignificantBitsFails}.
      */
-    @Property(tries = 600)
+    @Property(tries = 2000)
     void tamperingSignedContentFails(@ForAll("validPayloads") Generated generated, @ForAll int rawIndex) {
         KeyPair keyPair = Ed25519Keys.generate(RNG);
         LicenseTokenIssuer issuer = new LicenseTokenIssuer(new Ed25519Signer(keyPair.getPrivate(), "K1"));
@@ -77,7 +77,7 @@ class LicenseTokenPropertyTest {
     }
 
     /** M1: corrupting the significant bits of the signature fails verification (forged signature). */
-    @Property(tries = 300)
+    @Property(tries = 1000)
     void corruptingSignatureSignificantBitsFails(@ForAll("validPayloads") Generated generated) {
         KeyPair keyPair = Ed25519Keys.generate(RNG);
         LicenseTokenIssuer issuer = new LicenseTokenIssuer(new Ed25519Signer(keyPair.getPrivate(), "K1"));
@@ -95,7 +95,7 @@ class LicenseTokenPropertyTest {
     }
 
     /** M1: a token fails at/after exp; a not-yet-valid token fails before nbf; valid in between. */
-    @Property(tries = 300)
+    @Property(tries = 1000)
     void expiryAndNotBeforeBoundaries(
             @ForAll long iatSeed, @ForAll long gapSeed, @ForAll("entitlementSets") EntitlementSet ent) {
         long iat = 1_000_000_000L + Math.floorMod(iatSeed, 500_000_000L);

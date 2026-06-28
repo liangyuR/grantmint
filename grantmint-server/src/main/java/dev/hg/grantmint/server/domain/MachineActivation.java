@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -22,7 +23,12 @@ import org.hibernate.type.SqlTypes;
  * license, then count active rows). See docs/features/ACTIVATION_AND_SEATS.md.
  */
 @Entity
-@Table(name = "machine_activations")
+@Table(
+        name = "machine_activations",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uq_activations_license_fingerprint",
+                        columnNames = {"license_id", "fingerprint"}))
 public class MachineActivation {
 
     @Id

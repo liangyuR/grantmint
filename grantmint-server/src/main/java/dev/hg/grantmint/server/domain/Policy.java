@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -23,7 +24,12 @@ import org.hibernate.type.SqlTypes;
  * time). See docs/architecture/DATABASE_SCHEMA.md.
  */
 @Entity
-@Table(name = "policies")
+@Table(
+        name = "policies",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uq_policies_product_code",
+                        columnNames = {"product_id", "code"}))
 public class Policy {
 
     @Id

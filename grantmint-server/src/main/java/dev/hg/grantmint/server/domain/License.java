@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -24,7 +25,7 @@ import org.hibernate.type.SqlTypes;
  * docs/architecture/DATABASE_SCHEMA.md and docs/features/LICENSE_LIFECYCLE.md.
  */
 @Entity
-@Table(name = "licenses")
+@Table(name = "licenses", uniqueConstraints = @UniqueConstraint(name = "uq_licenses_key_id", columnNames = "key_id"))
 public class License {
 
     @Id
@@ -39,8 +40,8 @@ public class License {
     @JoinColumn(name = "policy_id", nullable = false)
     private Policy policy;
 
-    /** Short, human-readable online identifier, e.g. {@code GMNT-7F3A-9K2D-XQ41}. Unique. */
-    @Column(name = "key_id", nullable = false)
+    /** Short, human-readable online identifier, e.g. {@code K7P2-9QXM-4T1A}. Unique. */
+    @Column(name = "key_id", nullable = false, unique = true)
     private String keyId;
 
     /** Full Ed25519-signed offline artefact (base64url). Immutable once written. */

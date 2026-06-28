@@ -40,6 +40,12 @@ public interface LicenseRepository extends JpaRepository<License, UUID> {
     /**
      * Expiry-sweep candidates: non-terminal licenses with a concrete expiry already in the past.
      * The per-policy grace window is applied by the sweep job (M7).
+     *
+     * <p>{@code status} is an {@code AttributeConverter}-backed enum ({@code LicenseStatusConverter}),
+     * not {@code @Enumerated}. The {@code in :statuses} comparison therefore relies on Hibernate 6
+     * applying the converter to the bound {@link LicenseStatus} values — correct on Spring Boot 3 /
+     * Hibernate 6, but the dependency is implicit, so callers pass {@code LicenseStatus} constants
+     * (e.g. {@code ACTIVE}, {@code SUSPENDED}), never their wire strings.
      */
     @Query("select l from License l"
             + " where l.status in :statuses and l.expiresAt is not null and l.expiresAt < :cutoff")
