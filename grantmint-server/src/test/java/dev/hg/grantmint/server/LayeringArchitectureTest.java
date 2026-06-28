@@ -38,7 +38,8 @@ class LayeringArchitectureTest {
                         "dev.hg.grantmint.server.validation..",
                         "dev.hg.grantmint.server.activation..",
                         "dev.hg.grantmint.server.lifecycle..",
-                        "dev.hg.grantmint.server.webhook..")
+                        "dev.hg.grantmint.server.webhook..",
+                        "dev.hg.grantmint.server.audit..")
                 .layer("Domain")
                 .definedBy("dev.hg.grantmint.server.domain..", "dev.hg.grantmint.server.repo..")
                 .whereLayer("Web")
