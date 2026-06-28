@@ -4,11 +4,13 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import jakarta.persistence.UniqueConstraint;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
@@ -18,6 +20,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
+import org.springframework.data.domain.Persistable;
 
 /**
  * An issued instance of a policy for a customer. PII-bearing (holder name and email). The signed
@@ -26,11 +29,22 @@ import org.hibernate.type.SqlTypes;
  */
 @Entity
 @Table(name = "licenses", uniqueConstraints = @UniqueConstraint(name = "uq_licenses_key_id", columnNames = "key_id"))
-public class License {
+public class License implements Persistable<UUID> {
 
+    /**
+     * Application-assigned at construction (not {@code @GeneratedValue}) so issuance can embed this
+     * id as the token's {@code lid} claim <em>before</em> persisting — the {@code signed_token}
+     * column is NOT NULL, so the token must be built (which needs the id) before the row is written.
+     */
     @Id
-    @GeneratedValue
-    private UUID id;
+    private UUID id = UUID.randomUUID();
+
+    /**
+     * {@code true} until the row is persisted or loaded, so Spring Data {@code save()} issues a clean
+     * INSERT for the assigned id rather than a SELECT-then-merge. See {@link #isNew()}.
+     */
+    @Transient
+    private boolean newEntity = true;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "product_id", nullable = false)
@@ -118,6 +132,17 @@ public class License {
 
     public void setId(UUID id) {
         this.id = id;
+    }
+
+    @Override
+    public boolean isNew() {
+        return newEntity;
+    }
+
+    @PostPersist
+    @PostLoad
+    void markPersisted() {
+        this.newEntity = false;
     }
 
     public Product getProduct() {
