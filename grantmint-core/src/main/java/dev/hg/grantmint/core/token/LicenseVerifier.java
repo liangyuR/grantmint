@@ -1,0 +1,114 @@
+package dev.hg.grantmint.core.token;
+
+import dev.hg.grantmint.core.crypto.Ed25519Verifier;
+import dev.hg.grantmint.core.time.Clock;
+import java.security.PublicKey;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+
+/**
+ * Offline license-token verification — the product's correctness boundary.
+ *
+ * <p>A verifier holds one or more embedded Ed25519 public keys, indexed by signing-key id so a
+ * single client can validate tokens across a signing-key rotation. {@link #verifyAt} performs the
+ * full offline check (structure → algorithm pinning → signature → not-before → expiry) and returns a
+ * {@link VerificationResult}. No step contacts a network; revocation and seat counting are
+ * deliberately absent here (they require the online layer keyed by the license key ID).
+ *
+ * <p>The signature is checked against the <em>received</em> signing-input bytes, never a
+ * re-serialization. See docs/features/LICENSE_TOKEN_FORMAT.md.
+ */
+public final class LicenseVerifier {
+
+    private final Function<String, PublicKey> keyResolver;
+
+    private LicenseVerifier(Function<String, PublicKey> keyResolver) {
+        this.keyResolver = keyResolver;
+    }
+
+    /** A verifier holding a single signing key (its id is ignored — this key verifies every token). */
+    public static LicenseVerifier of(PublicKey publicKey) {
+        Objects.requireNonNull(publicKey, "publicKey");
+        return new LicenseVerifier(kid -> publicKey);
+    }
+
+    /** A verifier holding public keys indexed by signing-key id (for rotation). */
+    public static LicenseVerifier ofKeyring(Map<String, PublicKey> keysBySigningId) {
+        Objects.requireNonNull(keysBySigningId, "keysBySigningId");
+        Map<String, PublicKey> copy = Map.copyOf(keysBySigningId);
+        return new LicenseVerifier(copy::get);
+    }
+
+    /**
+     * Verify a token offline as of {@code clock}'s current time.
+     *
+     * @return a valid result with the authenticated claims, or a failure with the {@link
+     *     FailureReason}
+     */
+    public VerificationResult verifyAt(String token, Clock clock) {
+        Objects.requireNonNull(token, "token");
+        Objects.requireNonNull(clock, "clock");
+        return verify(token, keyResolver, clock);
+    }
+
+    /**
+     * Static convenience: verify a token against a single public key as of {@code clock}.
+     *
+     * <p>Mirrors {@code verifyAt(token, pubKey, clock)} from the spec.
+     */
+    public static VerificationResult verifyAt(String token, PublicKey publicKey, Clock clock) {
+        return of(publicKey).verifyAt(token, clock);
+    }
+
+    private static VerificationResult verify(String token, Function<String, PublicKey> resolver, Clock clock) {
+        // 1. Structure.
+        SignedToken parts;
+        TokenHeader header;
+        try {
+            parts = SignedToken.parse(token);
+            header = TokenCodec.decodeHeader(parts.headerSegment());
+        } catch (MalformedTokenException | IllegalArgumentException e) {
+            // Wrong segment count, undecodable base64/JSON, or a header missing required string fields.
+            return VerificationResult.failure(FailureReason.MALFORMED);
+        }
+
+        // 2. Algorithm pinning — reject anything but EdDSA before touching the signature.
+        if (!header.isAlgorithmAllowed()) {
+            return VerificationResult.failure(FailureReason.ALG_NOT_ALLOWED);
+        }
+
+        // 3. Signature over the RECEIVED bytes. Unknown key id or undecodable signature => forged.
+        PublicKey publicKey = resolver.apply(header.kid());
+        if (publicKey == null) {
+            return VerificationResult.failure(FailureReason.FORGED);
+        }
+        byte[] signature;
+        try {
+            signature = parts.signatureBytes();
+        } catch (IllegalArgumentException badBase64) {
+            return VerificationResult.failure(FailureReason.MALFORMED);
+        }
+        if (!new Ed25519Verifier(publicKey).verify(parts.signingInput(), signature)) {
+            return VerificationResult.failure(FailureReason.FORGED);
+        }
+
+        // 4. Claims are now trustworthy — parse them.
+        TokenPayload payload;
+        try {
+            payload = TokenCodec.decodePayload(parts.payloadSegment());
+        } catch (MalformedTokenException | IllegalArgumentException e) {
+            return VerificationResult.failure(FailureReason.MALFORMED);
+        }
+
+        // 5. Temporal validity.
+        long now = clock.nowEpochSecond();
+        if (payload.nbf() != null && now < payload.nbf()) {
+            return VerificationResult.failure(FailureReason.NOT_YET_VALID);
+        }
+        if (payload.exp() != null && now >= payload.exp()) {
+            return VerificationResult.failure(FailureReason.EXPIRED);
+        }
+        return VerificationResult.ok(header, payload);
+    }
+}
