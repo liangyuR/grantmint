@@ -5,6 +5,9 @@ import dev.hg.grantmint.server.audit.AuditActorType;
 import dev.hg.grantmint.server.audit.AuditService;
 import dev.hg.grantmint.server.domain.Product;
 import dev.hg.grantmint.server.security.AdminPrincipal;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -28,6 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/admin/products")
+@Tag(name = "Products (admin)", description = "Admin CRUD for products.")
+@SecurityRequirement(name = OpenApiConfig.ADMIN_SESSION)
 public class ProductAdminController {
 
     private final ProductAdminService products;
@@ -39,6 +44,7 @@ public class ProductAdminController {
     }
 
     @PostMapping
+    @Operation(summary = "Create a product")
     ResponseEntity<ProductView> create(
             @RequestBody CreateProductRequest request,
             @AuthenticationPrincipal AdminPrincipal admin,
@@ -56,16 +62,19 @@ public class ProductAdminController {
     }
 
     @GetMapping
+    @Operation(summary = "List all products")
     List<ProductView> list() {
         return products.list().stream().map(ProductView::of).toList();
     }
 
     @GetMapping("/{productId}")
+    @Operation(summary = "Get a product by id")
     ProductView get(@PathVariable UUID productId) {
         return ProductView.of(products.get(productId));
     }
 
     @PutMapping("/{productId}")
+    @Operation(summary = "Update a product", description = "Updates name and description; the slug is immutable.")
     ProductView update(
             @PathVariable UUID productId,
             @RequestBody UpdateProductRequest request,
@@ -84,6 +93,7 @@ public class ProductAdminController {
     }
 
     @DeleteMapping("/{productId}")
+    @Operation(summary = "Delete a product")
     ResponseEntity<Void> delete(
             @PathVariable UUID productId,
             @AuthenticationPrincipal AdminPrincipal admin,

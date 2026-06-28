@@ -7,6 +7,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.OffsetDateTime;
@@ -49,6 +50,19 @@ public class AdminSession {
 
     @Column(name = "revoked_at")
     private OffsetDateTime revokedAt;
+
+    /**
+     * Safety net for the NOT NULL {@code last_used_at} column. The service sets it at login and on
+     * every resolve; Hibernate sends an explicit value for mapped columns, so the SQL {@code DEFAULT
+     * now()} is bypassed. If a future caller ever persists a session without setting it, default it
+     * here so the bug surfaces as a usable timestamp rather than a constraint violation.
+     */
+    @PrePersist
+    void defaultLastUsedAt() {
+        if (lastUsedAt == null) {
+            lastUsedAt = OffsetDateTime.now();
+        }
+    }
 
     public UUID getId() {
         return id;

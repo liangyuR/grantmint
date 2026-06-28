@@ -7,6 +7,9 @@ import dev.hg.grantmint.server.security.AdminSessionService;
 import dev.hg.grantmint.server.security.AdminSessionService.LoginResult;
 import dev.hg.grantmint.server.security.AdminUserService;
 import dev.hg.grantmint.server.security.BearerTokens;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.Map;
@@ -25,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/admin/auth")
+@Tag(name = "Admin auth", description = "Scheme 1 — admin login and session management.")
 public class AdminAuthController {
 
     /** Minimum admin password length enforced on change. */
@@ -42,6 +46,7 @@ public class AdminAuthController {
 
     /** Exchange username/password for an opaque session bearer token. Open (no auth required). */
     @PostMapping("/login")
+    @Operation(summary = "Log in", description = "Exchange username/password for a session bearer token. Open.")
     ResponseEntity<?> login(@RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         Optional<LoginResult> result = sessions.login(request.username(), request.password());
         if (result.isEmpty()) {
@@ -63,6 +68,8 @@ public class AdminAuthController {
 
     /** Revoke the presented session (log out this client). */
     @PostMapping("/logout")
+    @Operation(summary = "Log out (revoke this session)")
+    @SecurityRequirement(name = OpenApiConfig.ADMIN_SESSION)
     ResponseEntity<Void> logout(HttpServletRequest httpRequest) {
         String token = BearerTokens.extract(httpRequest);
         sessions.logout(token);
@@ -71,6 +78,8 @@ public class AdminAuthController {
 
     /** Revoke every live session for the calling operator ("log out everywhere"). */
     @PostMapping("/logout-all")
+    @Operation(summary = "Log out everywhere (revoke all sessions)")
+    @SecurityRequirement(name = OpenApiConfig.ADMIN_SESSION)
     ResponseEntity<Void> logoutAll(@AuthenticationPrincipal AdminPrincipal principal) {
         sessions.logoutAll(principal.adminUserId());
         return ResponseEntity.noContent().build();
@@ -78,6 +87,8 @@ public class AdminAuthController {
 
     /** Change the calling operator's password (re-hashed with Argon2id). */
     @PostMapping("/password")
+    @Operation(summary = "Change the current operator's password")
+    @SecurityRequirement(name = OpenApiConfig.ADMIN_SESSION)
     ResponseEntity<Void> changePassword(
             @AuthenticationPrincipal AdminPrincipal principal, @RequestBody ChangePasswordRequest request) {
         String newPassword = request.newPassword();

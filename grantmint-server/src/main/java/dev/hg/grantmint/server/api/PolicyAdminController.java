@@ -7,6 +7,9 @@ import dev.hg.grantmint.server.audit.AuditActorType;
 import dev.hg.grantmint.server.audit.AuditService;
 import dev.hg.grantmint.server.domain.Policy;
 import dev.hg.grantmint.server.security.AdminPrincipal;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -28,6 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
  * policies directly by ID. Code and product are immutable after creation. Every mutation is audited.
  */
 @RestController
+@Tag(name = "Policies (admin)", description = "Admin CRUD for policies (license tiers).")
+@SecurityRequirement(name = OpenApiConfig.ADMIN_SESSION)
 public class PolicyAdminController {
 
     private final PolicyEntitlementService policyService;
@@ -39,6 +44,7 @@ public class PolicyAdminController {
     }
 
     @PostMapping("/admin/products/{productId}/policies")
+    @Operation(summary = "Create a policy under a product")
     ResponseEntity<PolicyView> create(
             @PathVariable UUID productId,
             @RequestBody CreatePolicyRequest request,
@@ -68,6 +74,7 @@ public class PolicyAdminController {
     }
 
     @GetMapping("/admin/products/{productId}/policies")
+    @Operation(summary = "List policies for a product")
     List<PolicyView> list(@PathVariable UUID productId) {
         return policyService.listPolicies(productId).stream()
                 .map(PolicyView::of)
@@ -75,11 +82,13 @@ public class PolicyAdminController {
     }
 
     @GetMapping("/admin/policies/{policyId}")
+    @Operation(summary = "Get a policy by id")
     PolicyView get(@PathVariable UUID policyId) {
         return PolicyView.of(policyService.getPolicy(policyId));
     }
 
     @PutMapping("/admin/policies/{policyId}")
+    @Operation(summary = "Update a policy", description = "Code and product are immutable.")
     PolicyView update(
             @PathVariable UUID policyId,
             @RequestBody UpdatePolicyRequest request,
@@ -108,6 +117,7 @@ public class PolicyAdminController {
     }
 
     @DeleteMapping("/admin/policies/{policyId}")
+    @Operation(summary = "Delete a policy")
     ResponseEntity<Void> delete(
             @PathVariable UUID policyId,
             @AuthenticationPrincipal AdminPrincipal admin,

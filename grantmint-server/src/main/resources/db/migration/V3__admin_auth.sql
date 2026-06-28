@@ -48,7 +48,7 @@ CREATE TABLE admin_sessions (
 
 COMMENT ON COLUMN admin_sessions.token_hash IS 'SHA-256 hash of the session token; never the token.';
 
--- Resolve a presented session by its hash (hot path on every admin request).
-CREATE INDEX ix_admin_sessions_token_hash ON admin_sessions (token_hash);
+-- Resolving a presented session by its hash (the hot path on every admin request) is already
+-- served by the implicit unique index behind uq_admin_sessions_token_hash, so no extra index here.
 -- Sweep / "log out everywhere" by owner.
 CREATE INDEX ix_admin_sessions_user ON admin_sessions (admin_user_id);

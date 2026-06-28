@@ -1,0 +1,18 @@
+# Gitleaks configuration for Grantmint.
+#
+# Keeps the full default ruleset everywhere, and narrowly allowlists the cross-language parity
+# fixtures. Those files intentionally contain a throwaway Ed25519 seed/public key and a signed
+# license token used as a deterministic test vector (see docs/testing/CROSS_VERIFIER_FIXTURES.md).
+# They are public by design and are NOT real credentials — the generic-api-key rule otherwise
+# flags the JWT-shaped token. Real signing keys are loaded from a private_key_ref pointer and are
+# never committed.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public, deterministic cross-language test fixtures — not real secrets."
+paths = [
+    '''grantmint-core/src/test/java/dev/hg/grantmint/core/token/CrossVerifierFixtureTest\.java''',
+    '''docs/testing/CROSS_VERIFIER_FIXTURES\.md''',
+]

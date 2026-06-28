@@ -32,6 +32,9 @@ class ArchitectureTest {
                         "org.springframework..",
                         "jakarta.persistence..",
                         "jakarta.servlet..",
+                        // Guard the legacy Java EE namespaces too, in case a stray transitive type slips in.
+                        "javax.persistence..",
+                        "javax.servlet..",
                         "com.fasterxml.jackson..")
                 .because("grantmint-core must remain a pure, framework-agnostic crypto/issuance "
                         + "library so it stays reusable, trivially testable, and AOT-friendly "

@@ -39,7 +39,7 @@ public class ApiKey {
     @Column(name = "key_hash", nullable = false)
     private String keyHash;
 
-    /** First 8 characters of the plaintext key, used for display and lookup. */
+    /** First 12 characters of the plaintext key (namespace + a peek), used for display and lookup. */
     @Column(name = "key_prefix", nullable = false)
     private String keyPrefix;
 

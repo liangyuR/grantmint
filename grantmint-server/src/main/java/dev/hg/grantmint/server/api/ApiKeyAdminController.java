@@ -8,6 +8,9 @@ import dev.hg.grantmint.server.security.ApiKeyEnvironment;
 import dev.hg.grantmint.server.security.ApiKeyScope;
 import dev.hg.grantmint.server.security.ApiKeyService;
 import dev.hg.grantmint.server.security.ApiKeyService.MintedKey;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -31,6 +34,8 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/admin/products/{productId}")
+@Tag(name = "API keys (admin)", description = "Manage a product's issuance and validation keys; secret shown once.")
+@SecurityRequirement(name = OpenApiConfig.ADMIN_SESSION)
 public class ApiKeyAdminController {
 
     private final ApiKeyService apiKeys;
@@ -42,6 +47,7 @@ public class ApiKeyAdminController {
     }
 
     @PostMapping("/issuance-keys")
+    @Operation(summary = "Create an issuance key", description = "Returns the plaintext secret exactly once.")
     ResponseEntity<CreatedApiKey> createIssuanceKey(
             @PathVariable UUID productId,
             @RequestBody CreateApiKeyRequest request,
@@ -57,11 +63,13 @@ public class ApiKeyAdminController {
     }
 
     @GetMapping("/issuance-keys")
+    @Operation(summary = "List issuance keys (metadata only)")
     List<ApiKeyView> listIssuanceKeys(@PathVariable UUID productId) {
         return list(productId, ApiKeyScope.ISSUANCE);
     }
 
     @DeleteMapping("/issuance-keys/{keyId}")
+    @Operation(summary = "Revoke an issuance key")
     ResponseEntity<Void> revokeIssuanceKey(
             @PathVariable UUID productId,
             @PathVariable UUID keyId,
@@ -71,6 +79,7 @@ public class ApiKeyAdminController {
     }
 
     @PostMapping("/validation-keys")
+    @Operation(summary = "Create a validation key", description = "Returns the plaintext secret exactly once.")
     ResponseEntity<CreatedApiKey> createValidationKey(
             @PathVariable UUID productId,
             @RequestBody CreateApiKeyRequest request,
@@ -80,11 +89,13 @@ public class ApiKeyAdminController {
     }
 
     @GetMapping("/validation-keys")
+    @Operation(summary = "List validation keys (metadata only)")
     List<ApiKeyView> listValidationKeys(@PathVariable UUID productId) {
         return list(productId, ApiKeyScope.VALIDATION);
     }
 
     @DeleteMapping("/validation-keys/{keyId}")
+    @Operation(summary = "Revoke a validation key")
     ResponseEntity<Void> revokeValidationKey(
             @PathVariable UUID productId,
             @PathVariable UUID keyId,

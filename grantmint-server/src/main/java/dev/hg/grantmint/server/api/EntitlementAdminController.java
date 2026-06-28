@@ -5,6 +5,9 @@ import dev.hg.grantmint.server.audit.AuditActorType;
 import dev.hg.grantmint.server.audit.AuditService;
 import dev.hg.grantmint.server.domain.Entitlement;
 import dev.hg.grantmint.server.security.AdminPrincipal;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -29,6 +32,8 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/admin/policies/{policyId}/entitlements")
+@Tag(name = "Entitlements (admin)", description = "Admin CRUD for policy entitlements; rebuilds the jsonb snapshot.")
+@SecurityRequirement(name = OpenApiConfig.ADMIN_SESSION)
 public class EntitlementAdminController {
 
     private final PolicyEntitlementService policyService;
@@ -40,6 +45,7 @@ public class EntitlementAdminController {
     }
 
     @PostMapping
+    @Operation(summary = "Add an entitlement to a policy")
     ResponseEntity<EntitlementView> create(
             @PathVariable UUID policyId,
             @RequestBody CreateEntitlementRequest request,
@@ -59,6 +65,7 @@ public class EntitlementAdminController {
     }
 
     @GetMapping
+    @Operation(summary = "List a policy's entitlements")
     List<EntitlementView> list(@PathVariable UUID policyId) {
         return policyService.listEntitlements(policyId).stream()
                 .map(EntitlementView::of)
@@ -66,6 +73,7 @@ public class EntitlementAdminController {
     }
 
     @PutMapping("/{entitlementId}")
+    @Operation(summary = "Update an entitlement")
     EntitlementView update(
             @PathVariable UUID policyId,
             @PathVariable UUID entitlementId,
@@ -86,6 +94,7 @@ public class EntitlementAdminController {
     }
 
     @DeleteMapping("/{entitlementId}")
+    @Operation(summary = "Delete an entitlement")
     ResponseEntity<Void> delete(
             @PathVariable UUID policyId,
             @PathVariable UUID entitlementId,

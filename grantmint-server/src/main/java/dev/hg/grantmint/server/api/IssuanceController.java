@@ -4,6 +4,9 @@ import dev.hg.grantmint.server.issuance.IssuanceCommand;
 import dev.hg.grantmint.server.issuance.IssuanceService;
 import dev.hg.grantmint.server.issuance.IssuedLicense;
 import dev.hg.grantmint.server.security.ApiKeyAuthentication;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -23,6 +26,8 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/issuance")
+@Tag(name = "Issuance", description = "Mint licenses with a per-product issuance key (Scheme 2).")
+@SecurityRequirement(name = OpenApiConfig.ISSUANCE_KEY)
 public class IssuanceController {
 
     private final IssuanceService issuance;
@@ -32,6 +37,10 @@ public class IssuanceController {
     }
 
     @PostMapping("/licenses")
+    @Operation(
+            summary = "Issue a license",
+            description = "Resolves the policy, snapshots its entitlements, mints and Ed25519-signs the offline "
+                    + "token, persists the license, and returns the key id, token, status, and expiry.")
     ResponseEntity<IssuedLicenseResponse> issue(
             @RequestBody IssueLicenseRequest request, Authentication authentication, HttpServletRequest httpRequest) {
         if (request.policyId() == null) {
