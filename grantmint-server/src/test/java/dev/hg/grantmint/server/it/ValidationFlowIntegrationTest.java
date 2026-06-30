@@ -8,6 +8,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.hg.grantmint.core.crypto.Ed25519Keys;
+import dev.hg.grantmint.core.crypto.Ed25519Signer;
+import dev.hg.grantmint.core.entitlement.EntitlementSet;
+import dev.hg.grantmint.core.token.Holder;
+import dev.hg.grantmint.core.token.LicenseTokenIssuer;
+import dev.hg.grantmint.core.token.TokenPayload;
 import dev.hg.grantmint.server.domain.License;
 import dev.hg.grantmint.server.domain.LicenseStatus;
 import dev.hg.grantmint.server.domain.Policy;
@@ -29,6 +34,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
@@ -159,6 +165,39 @@ class ValidationFlowIntegrationTest extends PostgresIntegrationTest {
         validate(fx.validationKey, keyId, null)
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error").value("license_expired"));
+    }
+
+    @Test
+    void licenseWithAFutureNotBeforeIsRejectedAsNotYetValid() throws Exception {
+        Fixture fx = fixture("notes-val-nbf", Map.of("team_sync", true));
+        String keyId = issue(fx, null);
+
+        // Re-stamp the stored token with a future nbf, signed by the product's real active key. The nbf
+        // claim has no database column, so this exercises the loader decoding it from the signed token:
+        // the online path must reject it as not-yet-valid exactly as the offline verifier would.
+        License license = licenses.findByKeyId(keyId).orElseThrow();
+        Ed25519Signer signer = signingKeys.signerForProduct(fx.productId());
+        long now = Instant.now().getEpochSecond();
+        TokenPayload futureStart = new TokenPayload(
+                TokenPayload.CURRENT_VERSION,
+                license.getId().toString(),
+                keyId,
+                "notes-val-nbf",
+                "pro-annual",
+                new Holder("Jane", "jane@example.com"),
+                now,
+                now + 3600, // nbf one hour in the future
+                null, // perpetual
+                EntitlementSet.empty(),
+                null,
+                null);
+        license.setSignedToken(new LicenseTokenIssuer(signer).sign(futureStart));
+        licenses.save(license);
+        validationCache.evict(keyId);
+
+        validate(fx.validationKey, keyId, null)
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error").value("license_not_yet_valid"));
     }
 
     @Test

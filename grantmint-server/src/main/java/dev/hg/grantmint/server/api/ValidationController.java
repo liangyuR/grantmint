@@ -5,6 +5,10 @@ import dev.hg.grantmint.server.validation.ValidationRateLimiter;
 import dev.hg.grantmint.server.validation.ValidationService;
 import dev.hg.grantmint.server.validation.ValidationView;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,8 +50,40 @@ public class ValidationController {
     @Operation(
             summary = "Validate a license",
             description = "Runs the full online check — token signature, database status (revocation/suspension), and "
-                    + "expiry — and returns the live entitlements. Returns 422 with valid:false for an unhealthy "
-                    + "license, or 429 with Retry-After when the per-key/per-IP rate limit is exceeded.")
+                    + "temporal window (nbf/exp) — and returns the live entitlements. Returns 422 with valid:false "
+                    + "for an unhealthy license, or 429 with Retry-After when the per-key/per-IP rate limit is "
+                    + "exceeded.")
+    @ApiResponses({
+        @ApiResponse(
+                responseCode = "200",
+                description = "License is valid; live entitlements returned",
+                content = @Content(schema = @Schema(implementation = ValidateResponse.class))),
+        @ApiResponse(
+                responseCode = "400",
+                description = "keyId missing or blank",
+                content = @Content(schema = @Schema(implementation = ApiError.class))),
+        @ApiResponse(
+                responseCode = "401",
+                description = "Missing or unrecognized validation credential",
+                content = @Content(schema = @Schema(implementation = ApiError.class))),
+        @ApiResponse(
+                responseCode = "403",
+                description = "Credential lacks the validation scope",
+                content = @Content(schema = @Schema(implementation = ApiError.class))),
+        @ApiResponse(
+                responseCode = "404",
+                description = "No license with this key id is visible to the requesting product",
+                content = @Content(schema = @Schema(implementation = ApiError.class))),
+        @ApiResponse(
+                responseCode = "422",
+                description = "Authentic but unusable license (revoked / suspended / expired / not-yet-valid / "
+                        + "inactive) — valid:false with a stable reason code",
+                content = @Content(schema = @Schema(implementation = ApiError.class))),
+        @ApiResponse(
+                responseCode = "429",
+                description = "Per-key or per-IP rate limit exceeded; retry after the Retry-After header",
+                content = @Content(schema = @Schema(implementation = ApiError.class))),
+    })
     ResponseEntity<ValidateResponse> validate(
             @RequestBody ValidateRequest request, Authentication authentication, HttpServletRequest httpRequest) {
         if (request == null || request.keyId() == null || request.keyId().isBlank()) {

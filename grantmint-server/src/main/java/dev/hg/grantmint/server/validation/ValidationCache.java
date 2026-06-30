@@ -2,6 +2,7 @@ package dev.hg.grantmint.server.validation;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Ticker;
 import java.time.Duration;
 import java.util.function.Function;
 
@@ -19,9 +20,18 @@ public class ValidationCache {
     private final Cache<String, ValidationSnapshot> cache;
 
     public ValidationCache(Duration ttl, long maximumSize) {
+        this(ttl, maximumSize, Ticker.systemTicker());
+    }
+
+    /**
+     * Test/advanced seam taking an explicit {@link Ticker} so the write-TTL — the revocation-latency
+     * ceiling — can be exercised deterministically without real time passing.
+     */
+    ValidationCache(Duration ttl, long maximumSize, Ticker ticker) {
         this.cache = Caffeine.newBuilder()
                 .maximumSize(maximumSize)
                 .expireAfterWrite(ttl)
+                .ticker(ticker)
                 .build();
     }
 

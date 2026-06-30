@@ -36,6 +36,15 @@ final class TokenBucket {
         return false;
     }
 
+    /**
+     * Hand back a token taken by a {@link #tryConsume()} that ultimately did not admit the request —
+     * used when a multi-dimension limiter consumes this bucket but another dimension rejects, so a
+     * blocked request never permanently spends a token here. Capped at capacity; never over-fills.
+     */
+    synchronized void refund() {
+        tokens = Math.min(capacity, tokens + 1.0);
+    }
+
     /** Whole seconds until the next token is available; at least 1 while the bucket is empty. */
     synchronized long retryAfterSeconds() {
         refill();

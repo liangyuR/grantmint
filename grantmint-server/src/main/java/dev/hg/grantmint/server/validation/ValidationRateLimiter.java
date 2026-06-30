@@ -10,9 +10,11 @@ import java.time.Duration;
  * across many keys. Each dimension has its own bucket store, bounded in size and expiring idle
  * buckets so the limiter's own memory stays bounded.
  *
- * <p>A request must spend a token from <em>both</em> applicable buckets; if either is empty the call
- * is rejected with a {@link RateLimitExceededException} whose {@code Retry-After} reflects the
- * longer of the two waits. Limits are configurable per deployment (see {@link
+ * <p>A request must spend a token from <em>both</em> applicable buckets. The dimensions are charged
+ * in order (key, then IP); if a later dimension rejects, the token already taken from the earlier one
+ * is <em>refunded</em>, so a blocked request never permanently spends a token in the dimension that
+ * was not the bottleneck. The {@link RateLimitExceededException}'s {@code Retry-After} reflects the
+ * wait of the dimension that actually rejected. Limits are configurable per deployment (see {@link
  * ValidationProperties.RateLimit}); setting {@code grantmint.validation.rate-limit.enabled=false}
  * disables enforcement entirely.
  */
@@ -49,12 +51,17 @@ public class ValidationRateLimiter {
                 keyId == null ? null : keyBuckets.get(keyId, k -> new TokenBucket(perKeyCapacity, perKeyWindow));
         TokenBucket ipBucket = ip == null ? null : ipBuckets.get(ip, k -> new TokenBucket(perIpCapacity, perIpWindow));
 
-        boolean keyOk = keyBucket == null || keyBucket.tryConsume();
-        boolean ipOk = ipBucket == null || ipBucket.tryConsume();
-        if (!keyOk || !ipOk) {
-            long retryAfter =
-                    Math.max(keyOk ? 0L : keyBucket.retryAfterSeconds(), ipOk ? 0L : ipBucket.retryAfterSeconds());
-            throw new RateLimitExceededException(Math.max(1L, retryAfter));
+        // Charge the key dimension first. If it rejects, the IP bucket is never touched.
+        if (keyBucket != null && !keyBucket.tryConsume()) {
+            throw new RateLimitExceededException(Math.max(1L, keyBucket.retryAfterSeconds()));
+        }
+        // Then the IP dimension. If it rejects, refund the key token so the request — which was not
+        // admitted — leaves no dent in the key bucket.
+        if (ipBucket != null && !ipBucket.tryConsume()) {
+            if (keyBucket != null) {
+                keyBucket.refund();
+            }
+            throw new RateLimitExceededException(Math.max(1L, ipBucket.retryAfterSeconds()));
         }
     }
 

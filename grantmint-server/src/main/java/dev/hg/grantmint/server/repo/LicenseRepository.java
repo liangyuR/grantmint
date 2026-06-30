@@ -22,6 +22,14 @@ public interface LicenseRepository extends JpaRepository<License, UUID> {
     /** Primary online lookup for validate/activate/heartbeat/revoke. */
     Optional<License> findByKeyId(String keyId);
 
+    /**
+     * Validation-snapshot lookup: like {@link #findByKeyId} but eagerly joins the product so the
+     * snapshot loader reads {@code product_id} in the same round-trip instead of triggering a lazy
+     * second SELECT on every cache miss.
+     */
+    @Query("select l from License l join fetch l.product where l.keyId = :keyId")
+    Optional<License> findByKeyIdWithProduct(@Param("keyId") String keyId);
+
     boolean existsByKeyId(String keyId);
 
     /**
