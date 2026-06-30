@@ -76,6 +76,31 @@ class CanonicalJsonTest {
         assertThatThrownBy(() -> CanonicalJson.parse("{} junk")).isInstanceOf(JsonParseException.class);
     }
 
+    @Test
+    void parseRejectsDuplicateObjectKeys() {
+        // Duplicates are undefined in JSON and resolve differently across verifiers; rejecting them
+        // keeps claim interpretation identical across the Java/Swift/Go SDKs.
+        assertThatThrownBy(() -> CanonicalJson.parse("{\"a\":1,\"a\":2}"))
+                .isInstanceOf(JsonParseException.class)
+                .hasMessageContaining("Duplicate object key 'a'");
+    }
+
+    @Test
+    void parseRejectsDuplicateKeysEvenWhenAValueIsNull() {
+        // containsKey (not put's return) must be used so a legitimate null value is still caught as
+        // a duplicate rather than mistaken for an absent key.
+        assertThatThrownBy(() -> CanonicalJson.parse("{\"a\":null,\"a\":1}"))
+                .isInstanceOf(JsonParseException.class)
+                .hasMessageContaining("Duplicate object key 'a'");
+    }
+
+    @Test
+    void parseRejectsDuplicateKeysInNestedObject() {
+        assertThatThrownBy(() -> CanonicalJson.parse("{\"outer\":{\"b\":1,\"b\":2}}"))
+                .isInstanceOf(JsonParseException.class)
+                .hasMessageContaining("Duplicate object key 'b'");
+    }
+
     /**
      * Task M1: canonical encode/decode round-trips byte-for-byte. Serializing, parsing, and
      * re-serializing any supported value yields identical bytes — the property the signing input

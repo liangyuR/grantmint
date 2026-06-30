@@ -32,6 +32,11 @@ import java.util.TreeMap;
  * payload bytes — never a re-serialization. {@link #parse} exists to <em>read</em> claims after the
  * signature has already been confirmed, not to recompute the signing input.
  *
+ * <p><strong>Parse strictness:</strong> {@link #parse} rejects objects with duplicate member names.
+ * The JSON spec leaves duplicates undefined and verifiers differ (first- vs last-wins); pinning them
+ * as an error keeps claim interpretation identical across the Java/Swift/Go SDKs. Canonically-issued
+ * tokens never contain duplicates, so only hand-crafted input is affected.
+ *
  * <p>See docs/features/LICENSE_TOKEN_FORMAT.md (Canonical JSON).
  */
 public final class CanonicalJson {
@@ -228,7 +233,17 @@ public final class CanonicalJson {
                 skipWhitespace();
                 expect(':');
                 skipWhitespace();
-                map.put(key, readValue());
+                Object value = readValue();
+                // Reject duplicate member names. JSON leaves duplicates undefined, and different
+                // verifiers resolve them differently (first- vs last-wins) — a divergence that could
+                // make the same signed bytes mean different things across the Java/Swift/Go SDKs. A
+                // canonically-issued token never has duplicates, so this only rejects hand-crafted
+                // input. containsKey (not put's return) is used so a legitimate null value is kept
+                // distinct from an absent key. See docs/features/LICENSE_TOKEN_FORMAT.md (Canonical JSON).
+                if (map.containsKey(key)) {
+                    throw new JsonParseException("Duplicate object key '" + key + "' at index " + index);
+                }
+                map.put(key, value);
                 skipWhitespace();
                 char c = next();
                 if (c == '}') {

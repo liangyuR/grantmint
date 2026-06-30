@@ -57,11 +57,20 @@ class SchemaMigrationTest extends PostgresIntegrationTest {
                 jdbc().queryForList("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'", String.class);
         assertThat(indexes)
                 .contains(
-                        "ix_licenses_key_id_active",
                         "ix_activations_license_active",
                         "ix_licenses_expiry_sweep",
                         "ix_activations_heartbeat",
                         "ix_licenses_entitlements_gin");
+    }
+
+    @Test
+    void keyIdLookupIsServedByTheFullUniqueIndexNotTheDroppedPartialOne() {
+        List<String> indexes =
+                jdbc().queryForList("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'", String.class);
+        // V5 dropped the partial WHERE status='active' index: the validation lookup is status-agnostic
+        // (it must classify revoked/suspended/expired licenses), so PostgreSQL can never plan the
+        // partial index — the V1 unique B-tree on key_id serves the hot-path lookup instead.
+        assertThat(indexes).doesNotContain("ix_licenses_key_id_active").contains("uq_licenses_key_id");
     }
 
     @Test

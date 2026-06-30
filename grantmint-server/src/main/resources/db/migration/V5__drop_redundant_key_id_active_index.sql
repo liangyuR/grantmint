@@ -1,0 +1,17 @@
+-- V5__drop_redundant_key_id_active_index.sql — remove an index that can never be planned.
+--
+-- V2 added `ix_licenses_key_id_active ON licenses (key_id) WHERE status = 'active'` on the
+-- assumption the validation hot path looks up *active* licenses by key id. It does not: the
+-- online validation lookup (ValidationSnapshotLoader.load → LicenseRepository.findByKeyIdWithProduct)
+-- is deliberately status-agnostic, because it must also resolve REVOKED / SUSPENDED / EXPIRED /
+-- CREATED licenses to report the correct reason code. A query with no `status = 'active'` predicate
+-- can never use a partial index whose predicate is exactly that, so PostgreSQL always serves the
+-- lookup from the full unique B-tree `uq_licenses_key_id` (created in V1). The partial index was
+-- therefore unreachable dead weight — pure write amplification on every status transition with no
+-- read benefit.
+--
+-- Forward-only and additive in the Flyway sense (a new versioned migration, V1–V4 untouched).
+-- `IF EXISTS` keeps it idempotent across environments. If a genuinely status-scoped key-id lookup
+-- is ever introduced (none is planned — see ACTIVATION_AND_SEATS.md, which locks by id), a later
+-- migration can recreate it.
+DROP INDEX IF EXISTS ix_licenses_key_id_active;
