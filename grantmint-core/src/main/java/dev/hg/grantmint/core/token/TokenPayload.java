@@ -80,6 +80,12 @@ public record TokenPayload(
         Map<String, Object> con =
                 map.get("con") instanceof Map<?, ?> c ? new LinkedHashMap<>((Map<String, Object>) c) : null;
         Holder holder = Holder.fromMap(requireMap(map, "hld"));
+        // exp is a required claim whose value may be null (perpetual). A token that omits the key
+        // entirely is malformed — never silently treated as perpetual. Distinguishable on the wire
+        // because canonical JSON emits "exp":null for a perpetual license (never drops the key).
+        if (!map.containsKey("exp")) {
+            throw new IllegalArgumentException("Claim 'exp' is required (use null for a perpetual license)");
+        }
         return new TokenPayload(
                 asInt(map, "ver"),
                 asString(map, "lid"),

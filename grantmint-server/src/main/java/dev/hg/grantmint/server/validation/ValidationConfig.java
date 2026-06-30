@@ -23,4 +23,9 @@ public class ValidationConfig {
     ValidationRateLimiter validationRateLimiter(ValidationProperties properties) {
         return new ValidationRateLimiter(properties.getRateLimit());
     }
+
+    @Bean
+    ClientIpResolver clientIpResolver(ValidationProperties properties) {
+        return new ClientIpResolver(properties.getRateLimit().getTrustedProxies());
+    }
 }

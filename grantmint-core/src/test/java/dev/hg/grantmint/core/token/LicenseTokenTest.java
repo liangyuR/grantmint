@@ -212,6 +212,72 @@ class LicenseTokenTest {
     }
 
     @Test
+    void matchingExpectedProductVerifies() {
+        String token = issuer.sign(proLicense());
+        VerificationResult result = LicenseVerifier.verifyAt(
+                token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)), "prod_acme_notes");
+        assertThat(result.isValid()).isTrue();
+        assertThat(result.payload().prd()).isEqualTo("prod_acme_notes");
+    }
+
+    @Test
+    void mismatchedExpectedProductIsWrongProduct() {
+        // Same key pair signs a token for product A; presenting it to product B's gate must be rejected
+        // as WRONG_PRODUCT even though the signature is authentic — the cross-product acceptance guard.
+        String token = issuer.sign(proLicense());
+        VerificationResult result = LicenseVerifier.verifyAt(
+                token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)), "prod_other_app");
+        assertThat(result.reason()).isEqualTo(FailureReason.WRONG_PRODUCT);
+    }
+
+    @Test
+    void nullExpectedProductSkipsTheProductCheck() {
+        // Backward-compatible: the no-product overload accepts any authentic token regardless of prd.
+        String token = issuer.sign(proLicense());
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.isValid()).isTrue();
+    }
+
+    @Test
+    void wrongProductIsRejectedBeforeExpiry() {
+        // Precedence: an authentic-but-expired token for the wrong product reports WRONG_PRODUCT, not
+        // EXPIRED — the product gate runs before the temporal window.
+        String token = issuer.sign(proLicense());
+        VerificationResult result = LicenseVerifier.verifyAt(
+                token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(EXP + 1)), "prod_other_app");
+        assertThat(result.reason()).isEqualTo(FailureReason.WRONG_PRODUCT);
+    }
+
+    @Test
+    void tokenOmittingExpIsMalformed() {
+        // exp is required (its value may be null for perpetual). A validly-signed token that drops the
+        // exp key entirely must be MALFORMED — never silently admitted as a perpetual license.
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}";
+        String payloadJson = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"p\",\"pol\":\"po\","
+                + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + IAT + ",\"ent\":{}}";
+        String token = signRawJson(headerJson, payloadJson);
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
+    void tokenWithExplicitNullExpIsPerpetualNotMalformed() {
+        // The counterpart to the above: exp present with a null value is a valid perpetual license.
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}";
+        String payloadJson = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"p\",\"pol\":\"po\","
+                + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + IAT + ",\"exp\":null,\"ent\":{}}";
+        String token = signRawJson(headerJson, payloadJson);
+
+        VerificationResult result = LicenseVerifier.verifyAt(
+                token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(4_102_444_800L)));
+        assertThat(result.isValid()).isTrue();
+        assertThat(result.payload().exp()).isNull();
+    }
+
+    @Test
     void paddedSegmentIsMalformed() {
         // Padding is outside the wire contract; a '='-padded segment must be rejected, not tolerated.
         String[] segments = issuer.sign(proLicense()).split("\\.");

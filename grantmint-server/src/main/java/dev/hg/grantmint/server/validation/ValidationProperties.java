@@ -1,6 +1,7 @@
 package dev.hg.grantmint.server.validation;
 
 import java.time.Duration;
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -64,8 +65,24 @@ public class ValidationProperties {
         private long perIpCapacity = 600;
         private Duration perIpWindow = Duration.ofMinutes(1);
 
+        /**
+         * Reverse proxies whose {@code X-Forwarded-For} header may be trusted to carry the real client
+         * IP, as a list of CIDRs (or bare IPs). Empty by default — the socket peer is used and any
+         * forwarded header is ignored, so a direct client cannot spoof its source IP. Set this to the
+         * load balancer / ingress addresses once the topology is known. See {@link ClientIpResolver}.
+         */
+        private List<String> trustedProxies = List.of();
+
         public boolean isEnabled() {
             return enabled;
+        }
+
+        public List<String> getTrustedProxies() {
+            return trustedProxies;
+        }
+
+        public void setTrustedProxies(List<String> trustedProxies) {
+            this.trustedProxies = trustedProxies == null ? List.of() : List.copyOf(trustedProxies);
         }
 
         public void setEnabled(boolean enabled) {

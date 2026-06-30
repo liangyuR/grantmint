@@ -1,6 +1,7 @@
 package dev.hg.grantmint.server.api;
 
 import dev.hg.grantmint.server.security.ApiKeyAuthentication;
+import dev.hg.grantmint.server.validation.ClientIpResolver;
 import dev.hg.grantmint.server.validation.ValidationRateLimiter;
 import dev.hg.grantmint.server.validation.ValidationService;
 import dev.hg.grantmint.server.validation.ValidationView;
@@ -40,10 +41,13 @@ public class ValidationController {
 
     private final ValidationService validation;
     private final ValidationRateLimiter rateLimiter;
+    private final ClientIpResolver clientIp;
 
-    public ValidationController(ValidationService validation, ValidationRateLimiter rateLimiter) {
+    public ValidationController(
+            ValidationService validation, ValidationRateLimiter rateLimiter, ClientIpResolver clientIp) {
         this.validation = validation;
         this.rateLimiter = rateLimiter;
+        this.clientIp = clientIp;
     }
 
     @PostMapping("/validate")
@@ -89,7 +93,7 @@ public class ValidationController {
         if (request == null || request.keyId() == null || request.keyId().isBlank()) {
             throw new IllegalArgumentException("keyId is required");
         }
-        rateLimiter.check(request.keyId(), httpRequest.getRemoteAddr());
+        rateLimiter.check(request.keyId(), clientIp.resolve(httpRequest));
         ApiKeyAuthentication key = (ApiKeyAuthentication) authentication;
         ValidationView view = validation.validate(request.keyId(), key.productId(), request.fingerprint());
         return ResponseEntity.ok(ValidateResponse.of(view));

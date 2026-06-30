@@ -13,13 +13,17 @@ package dev.hg.grantmint.core.token;
  *       forged, or signed by an unknown key);
  *   <li>{@link #UNSUPPORTED_VERSION} — the (now-authenticated) payload {@code ver} is not a format
  *       version this verifier understands; refusing to interpret an unknown layout is fail-closed;
+ *   <li>{@link #WRONG_PRODUCT} — the (now-authenticated) payload {@code prd} is not the product the
+ *       caller expected; an authentic token for product A presented to product B's gate. Only
+ *       reported when the caller supplies an expected product id (the offline SDK guard against a
+ *       multi-product, single-key-pair deployment accepting a sibling product's token);
  *   <li>{@link #NOT_YET_VALID} — {@code now} is before {@code nbf};
  *   <li>{@link #EXPIRED} — {@code now} is at or past {@code exp}.
  * </ol>
  *
  * <p>Header gates ({@code ALG_NOT_ALLOWED}, {@code WRONG_TYPE}) run before the signature; signature
- * authenticity is checked <em>before</em> the version and time claims so an attacker cannot learn
- * anything by editing {@code ver}/{@code exp}/{@code nbf} on a forged token. See
+ * authenticity is checked <em>before</em> the version, product, and time claims so an attacker cannot
+ * learn anything by editing {@code ver}/{@code prd}/{@code exp}/{@code nbf} on a forged token. See
  * docs/features/LICENSE_TOKEN_FORMAT.md.
  */
 public enum FailureReason {
@@ -28,6 +32,7 @@ public enum FailureReason {
     WRONG_TYPE,
     FORGED,
     UNSUPPORTED_VERSION,
+    WRONG_PRODUCT,
     NOT_YET_VALID,
     EXPIRED
 }

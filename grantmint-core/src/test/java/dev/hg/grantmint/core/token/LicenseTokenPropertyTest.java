@@ -48,6 +48,30 @@ class LicenseTokenPropertyTest {
     }
 
     /**
+     * M1 (audit remediation): product binding is exact. Any issued token verifies when the expected
+     * product matches its {@code prd} claim, and is rejected as {@link FailureReason#WRONG_PRODUCT}
+     * when it does not — the cross-product acceptance guard for single-key-pair, multi-product setups.
+     */
+    @Property(tries = 2000)
+    void productBindingAcceptsMatchAndRejectsMismatch(@ForAll("validPayloads") Generated generated) {
+        KeyPair keyPair = Ed25519Keys.generate(RNG);
+        LicenseTokenIssuer issuer = new LicenseTokenIssuer(new Ed25519Signer(keyPair.getPrivate(), "K1"));
+        String token = issuer.sign(generated.payload());
+        String prd = generated.payload().prd();
+
+        VerificationResult match = LicenseVerifier.verifyAt(token, keyPair.getPublic(), generated.clock(), prd);
+        assertThat(match.isValid())
+                .as("token must verify when the expected product matches its prd claim")
+                .isTrue();
+
+        VerificationResult mismatch =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), generated.clock(), prd + "_other");
+        assertThat(mismatch.reason())
+                .as("token for product %s must be rejected for a different product", prd)
+                .isEqualTo(FailureReason.WRONG_PRODUCT);
+    }
+
+    /**
      * M1: any single-character tampering of the signed content (header or payload) fails
      * verification. Every char in segments A/B is part of the ASCII signing input, so changing any
      * one breaks the Ed25519 signature.

@@ -23,8 +23,44 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * browser cookie + CSRF flow lands with the M11 dashboard.
  */
 @Configuration
-@EnableConfigurationProperties(GrantmintAdminProperties.class)
+@EnableConfigurationProperties({GrantmintAdminProperties.class, GrantmintOpenApiProperties.class})
 public class GrantmintSecurityConfig {
+
+    /** OpenAPI doc + Swagger UI paths (springdoc), gated by {@link GrantmintOpenApiProperties}. */
+    private static final String[] OPENAPI_PATHS = {
+        "/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**"
+    };
+
+    /**
+     * Chain 0 — OPENAPI docs. Most specific so it wins for doc/UI paths before any functional chain.
+     * Its policy is configurable because these endpoints sit outside the three auth surfaces: public
+     * by default, lockable to admin-only or fully disabled in production.
+     */
+    @Bean
+    @Order(0)
+    SecurityFilterChain openApiDocsChain(
+            HttpSecurity http,
+            GrantmintOpenApiProperties openApi,
+            AdminSessionService sessions,
+            GrantmintAdminProperties adminProperties,
+            SecurityErrorResponder errors)
+            throws Exception {
+        http.securityMatcher(OPENAPI_PATHS)
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        switch (openApi.getAccess()) {
+            case PUBLIC -> http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+            case DISABLED -> http.authorizeHttpRequests(
+                            auth -> auth.anyRequest().denyAll())
+                    .exceptionHandling(ex -> ex.authenticationEntryPoint(errors).accessDeniedHandler(errors));
+            case ADMIN -> http.addFilterBefore(
+                            new AdminSessionAuthFilter(sessions, adminProperties),
+                            UsernamePasswordAuthenticationFilter.class)
+                    .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("ADMIN"))
+                    .exceptionHandling(ex -> ex.authenticationEntryPoint(errors).accessDeniedHandler(errors));
+        }
+        return http.build();
+    }
 
     /** Chain 1 — VALIDATION (most specific, highest precedence, hottest path). */
     @Bean
@@ -49,6 +85,10 @@ public class GrantmintSecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(new IssuanceKeyAuthFilter(apiKeys), UsernamePasswordAuthenticationFilter.class)
+                // Flat authority gate is correct while issuance + revoke are the only operations here.
+                // When suspend/revoke endpoints land (M7), split into per-method matchers so a SCOPE_ISSUE
+                // -only key cannot revoke: e.g. requestMatchers(POST,
+                // "/issuance/**/revoke").hasAuthority(SCOPE_REVOKE).
                 .authorizeHttpRequests(auth -> auth.anyRequest().hasAnyAuthority("SCOPE_ISSUE", "SCOPE_REVOKE"))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(errors).accessDeniedHandler(errors))
                 .build();

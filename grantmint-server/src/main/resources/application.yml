@@ -34,3 +34,16 @@ management:
     web:
       exposure:
         include: health, info
+
+grantmint:
+  # OpenAPI doc (/v3/api-docs) + Swagger UI (/swagger-ui) access policy. These sit outside the three
+  # functional auth chains. Default is public (the document exposes only the API shape, no secrets);
+  # set to `admin` to require an admin session, or `disabled` to stop serving them, in production.
+  openapi:
+    access: public
+  validation:
+    rate-limit:
+      # Reverse proxies whose X-Forwarded-For may be trusted to carry the real client IP, as CIDRs
+      # (or bare IPs). Empty = use the socket peer and ignore the header (cannot be spoofed). Set this
+      # to your load balancer / ingress range so the per-IP limit keys on the real client.
+      trusted-proxies: []

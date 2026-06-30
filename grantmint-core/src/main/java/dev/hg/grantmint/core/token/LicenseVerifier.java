@@ -13,7 +13,7 @@ import java.util.function.Function;
  * <p>A verifier holds one or more embedded Ed25519 public keys, indexed by signing-key id so a
  * single client can validate tokens across a signing-key rotation. {@link #verifyAt} performs the
  * full offline check (structure → algorithm pinning → type pinning → signature → format version →
- * not-before → expiry) and returns a
+ * optional product binding → not-before → expiry) and returns a
  * {@link VerificationResult}. No step contacts a network; revocation and seat counting are
  * deliberately absent here (they require the online layer keyed by the license key ID).
  *
@@ -42,27 +42,53 @@ public final class LicenseVerifier {
     }
 
     /**
-     * Verify a token offline as of {@code clock}'s current time.
+     * Verify a token offline as of {@code clock}'s current time, without binding it to a product.
      *
      * @return a valid result with the authenticated claims, or a failure with the {@link
      *     FailureReason}
      */
     public VerificationResult verifyAt(String token, Clock clock) {
+        return verifyAt(token, clock, null);
+    }
+
+    /**
+     * Verify a token offline as of {@code clock}'s current time, bound to an expected product.
+     *
+     * <p>When {@code expectedProductId} is non-null, the authenticated {@code prd} claim must equal it
+     * or the result is {@link FailureReason#WRONG_PRODUCT}. This closes the cross-product acceptance
+     * gap in a deployment where one Ed25519 key pair signs tokens for several products: a sibling
+     * product's authentic token would otherwise verify here. Pass {@code null} to skip the check (the
+     * single-product case, where the embedded public key already scopes trust).
+     *
+     * @return a valid result with the authenticated claims, or a failure with the {@link
+     *     FailureReason}
+     */
+    public VerificationResult verifyAt(String token, Clock clock, String expectedProductId) {
         Objects.requireNonNull(token, "token");
         Objects.requireNonNull(clock, "clock");
-        return verify(token, keyResolver, clock);
+        return verify(token, keyResolver, clock, expectedProductId);
     }
 
     /**
      * Static convenience: verify a token against a single public key as of {@code clock}.
      *
-     * <p>Mirrors {@code verifyAt(token, pubKey, clock)} from the spec.
+     * <p>Mirrors {@code verifyAt(token, pubKey, clock)} from the spec. Performs no product binding.
      */
     public static VerificationResult verifyAt(String token, PublicKey publicKey, Clock clock) {
-        return of(publicKey).verifyAt(token, clock);
+        return of(publicKey).verifyAt(token, clock, null);
     }
 
-    private static VerificationResult verify(String token, Function<String, PublicKey> resolver, Clock clock) {
+    /**
+     * Static convenience: verify a token against a single public key as of {@code clock}, bound to an
+     * expected product. See {@link #verifyAt(String, Clock, String)}.
+     */
+    public static VerificationResult verifyAt(
+            String token, PublicKey publicKey, Clock clock, String expectedProductId) {
+        return of(publicKey).verifyAt(token, clock, expectedProductId);
+    }
+
+    private static VerificationResult verify(
+            String token, Function<String, PublicKey> resolver, Clock clock, String expectedProductId) {
         // 1. Structure.
         SignedToken parts;
         TokenHeader header;
@@ -118,7 +144,13 @@ public final class LicenseVerifier {
             return VerificationResult.failure(FailureReason.UNSUPPORTED_VERSION);
         }
 
-        // 6. Temporal validity.
+        // 6. Product binding — an authentic token for a sibling product (same signing key pair) must
+        // not pass another product's gate. Skipped when the caller expects no specific product.
+        if (expectedProductId != null && !expectedProductId.equals(payload.prd())) {
+            return VerificationResult.failure(FailureReason.WRONG_PRODUCT);
+        }
+
+        // 7. Temporal validity.
         long now = clock.nowEpochSecond();
         if (payload.nbf() != null && now < payload.nbf()) {
             return VerificationResult.failure(FailureReason.NOT_YET_VALID);
