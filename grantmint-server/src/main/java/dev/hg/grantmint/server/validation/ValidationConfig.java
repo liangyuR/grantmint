@@ -18,4 +18,9 @@ public class ValidationConfig {
         return new ValidationCache(
                 properties.getCache().getTtl(), properties.getCache().getMaximumSize());
     }
+
+    @Bean
+    ValidationRateLimiter validationRateLimiter(ValidationProperties properties) {
+        return new ValidationRateLimiter(properties.getRateLimit());
+    }
 }

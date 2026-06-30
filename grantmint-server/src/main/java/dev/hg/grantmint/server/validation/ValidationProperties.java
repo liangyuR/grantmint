@@ -15,9 +15,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class ValidationProperties {
 
     private final Cache cache = new Cache();
+    private final RateLimit rateLimit = new RateLimit();
 
     public Cache getCache() {
         return cache;
+    }
+
+    public RateLimit getRateLimit() {
+        return rateLimit;
     }
 
     /** Caffeine validation-snapshot cache settings. */
@@ -43,6 +48,60 @@ public class ValidationProperties {
 
         public void setMaximumSize(long maximumSize) {
             this.maximumSize = maximumSize;
+        }
+    }
+
+    /**
+     * Hot-path rate limits. Each dimension is a token bucket: {@code capacity} permits a burst, the
+     * {@code window} sets the sustained refill rate ({@code capacity} tokens per window). The per-IP
+     * allowance is higher because one IP legitimately fronts many distinct license keys.
+     */
+    public static class RateLimit {
+
+        private boolean enabled = true;
+        private long perKeyCapacity = 60;
+        private Duration perKeyWindow = Duration.ofMinutes(1);
+        private long perIpCapacity = 600;
+        private Duration perIpWindow = Duration.ofMinutes(1);
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public long getPerKeyCapacity() {
+            return perKeyCapacity;
+        }
+
+        public void setPerKeyCapacity(long perKeyCapacity) {
+            this.perKeyCapacity = perKeyCapacity;
+        }
+
+        public Duration getPerKeyWindow() {
+            return perKeyWindow;
+        }
+
+        public void setPerKeyWindow(Duration perKeyWindow) {
+            this.perKeyWindow = perKeyWindow;
+        }
+
+        public long getPerIpCapacity() {
+            return perIpCapacity;
+        }
+
+        public void setPerIpCapacity(long perIpCapacity) {
+            this.perIpCapacity = perIpCapacity;
+        }
+
+        public Duration getPerIpWindow() {
+            return perIpWindow;
+        }
+
+        public void setPerIpWindow(Duration perIpWindow) {
+            this.perIpWindow = perIpWindow;
         }
     }
 }

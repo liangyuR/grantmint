@@ -1,6 +1,7 @@
 package dev.hg.grantmint.server.it;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -19,6 +20,8 @@ import dev.hg.grantmint.server.security.ApiKeyScope;
 import dev.hg.grantmint.server.security.ApiKeyService;
 import dev.hg.grantmint.server.signing.SigningKeyService;
 import dev.hg.grantmint.server.validation.ValidationCache;
+import dev.hg.grantmint.server.validation.ValidationProperties;
+import dev.hg.grantmint.server.validation.ValidationRateLimiter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -74,6 +77,12 @@ class ValidationFlowIntegrationTest extends PostgresIntegrationTest {
 
     @Autowired
     private ValidationCache validationCache;
+
+    @Autowired
+    private ValidationRateLimiter rateLimiter;
+
+    @Autowired
+    private ValidationProperties validationProperties;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -180,6 +189,24 @@ class ValidationFlowIntegrationTest extends PostgresIntegrationTest {
                         .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("bad_request"));
+    }
+
+    @Test
+    void perKeyRateLimitReturns429WithRetryAfter() throws Exception {
+        Fixture fx = fixture("notes-val-ratelimit", Map.of());
+        String keyId = issue(fx, null);
+        rateLimiter.reset(); // start from full buckets, isolated from other tests
+
+        long capacity = validationProperties.getRateLimit().getPerKeyCapacity();
+        for (int i = 0; i < capacity; i++) {
+            validate(fx.validationKey, keyId, null).andExpect(status().isOk());
+        }
+
+        // The next call exceeds the per-key bucket -> 429 with a Retry-After hint.
+        validate(fx.validationKey, keyId, null)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"))
+                .andExpect(jsonPath("$.error").value("rate_limited"));
     }
 
     @Test

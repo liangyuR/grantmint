@@ -1,11 +1,13 @@
 package dev.hg.grantmint.server.api;
 
 import dev.hg.grantmint.server.security.ApiKeyAuthentication;
+import dev.hg.grantmint.server.validation.ValidationRateLimiter;
 import dev.hg.grantmint.server.validation.ValidationService;
 import dev.hg.grantmint.server.validation.ValidationView;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
@@ -33,9 +35,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ValidationController {
 
     private final ValidationService validation;
+    private final ValidationRateLimiter rateLimiter;
 
-    public ValidationController(ValidationService validation) {
+    public ValidationController(ValidationService validation, ValidationRateLimiter rateLimiter) {
         this.validation = validation;
+        this.rateLimiter = rateLimiter;
     }
 
     @PostMapping("/validate")
@@ -43,11 +47,13 @@ public class ValidationController {
             summary = "Validate a license",
             description = "Runs the full online check — token signature, database status (revocation/suspension), and "
                     + "expiry — and returns the live entitlements. Returns 422 with valid:false for an unhealthy "
-                    + "license.")
-    ResponseEntity<ValidateResponse> validate(@RequestBody ValidateRequest request, Authentication authentication) {
+                    + "license, or 429 with Retry-After when the per-key/per-IP rate limit is exceeded.")
+    ResponseEntity<ValidateResponse> validate(
+            @RequestBody ValidateRequest request, Authentication authentication, HttpServletRequest httpRequest) {
         if (request == null || request.keyId() == null || request.keyId().isBlank()) {
             throw new IllegalArgumentException("keyId is required");
         }
+        rateLimiter.check(request.keyId(), httpRequest.getRemoteAddr());
         ApiKeyAuthentication key = (ApiKeyAuthentication) authentication;
         ValidationView view = validation.validate(request.keyId(), key.productId(), request.fingerprint());
         return ResponseEntity.ok(ValidateResponse.of(view));
