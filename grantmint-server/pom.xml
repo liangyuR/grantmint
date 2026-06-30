@@ -70,6 +70,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Caffeine backs the validation snapshot cache and the hot-path rate limiter (M5).
+             Version is managed by the Spring Boot BOM. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
         <!-- Tests: real PostgreSQL 16 via Testcontainers (never H2). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
