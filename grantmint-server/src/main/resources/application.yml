@@ -47,3 +47,11 @@ grantmint:
       # (or bare IPs). Empty = use the socket peer and ignore the header (cannot be spoofed). Set this
       # to your load balancer / ingress range so the per-IP limit keys on the real client.
       trusted-proxies: []
+  lifecycle:
+    # How often the expiry-sweep job runs (ISO-8601 duration). It flips active/suspended licenses to
+    # expired once expires_at + the license's policy grace period has elapsed.
+    expiry-sweep-interval: PT5M
+  activation:
+    # How often the heartbeat-timeout reaper runs (ISO-8601 duration). It frees seats whose
+    # last_heartbeat_at is older than 3x the license's policy heartbeat_interval_seconds.
+    reaper-interval: PT5M
