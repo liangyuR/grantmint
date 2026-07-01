@@ -54,6 +54,7 @@ class IssuancePropertyTest {
     @Property(tries = 1000)
     void anyValidPolicyMintsAVerifiableTokenCarryingItsTerms(
             @ForAll @IntRange(min = 0, max = 3650) int durationDaysOrPerpetual,
+            @ForAll @IntRange(min = 0, max = 365) int gracePeriodDays,
             @ForAll @IntRange(min = 1, max = 100_000) int maxSeats,
             @ForAll boolean flagValue,
             @ForAll @LongRange(min = -1, max = 1_000_000_000L) long limitValue,
@@ -82,6 +83,7 @@ class IssuancePropertyTest {
         entitlements.put("max_devices", limitValue);
         entitlements.put("tier", tierValue);
         Policy policy = policy(durationDays, maxSeats, entitlements);
+        policy.setGracePeriodDays(gracePeriodDays);
 
         when(policies.findById(POLICY_ID)).thenReturn(Optional.of(policy));
         when(licenses.existsByKeyId(anyString())).thenReturn(false);
@@ -105,15 +107,35 @@ class IssuancePropertyTest {
         // Entitlements carried exactly (decode round-trips through the token's ent claim).
         assertThat(payload.entitlements()).isEqualTo(EntitlementSet.decode(entitlements));
 
-        // Expiry carried exactly: perpetual stays null; a duration becomes NOW + days.
+        // Expiry: perpetual stays null everywhere. Otherwise the database expiry is strict
+        // (NOW + duration — where online enforcement flips) while the token's cryptographic exp
+        // trails it by the policy's grace period, so the offline artefact keeps verifying through
+        // the grace window and fails on its own past it (LICENSE_LIFECYCLE.md, expiry + grace).
         if (durationDays == null) {
             assertThat(payload.exp()).isNull();
             assertThat(issued.expiresAt()).isNull();
         } else {
-            long expectedExp =
+            long expectedDbExpiry =
                     NOW.atOffset(ZoneOffset.UTC).plusDays(durationDays).toEpochSecond();
-            assertThat(payload.exp()).isEqualTo(expectedExp);
-            assertThat(issued.expiresAt().toEpochSecond()).isEqualTo(expectedExp);
+            long expectedTokenExp = NOW.atOffset(ZoneOffset.UTC)
+                    .plusDays(durationDays)
+                    .plusDays(gracePeriodDays)
+                    .toEpochSecond();
+            assertThat(issued.expiresAt().toEpochSecond()).isEqualTo(expectedDbExpiry);
+            assertThat(payload.exp()).isEqualTo(expectedTokenExp);
+
+            // Offline behaviour across the window: verifies just inside the grace window,
+            // cryptographically dead the second the (grace-extended) exp is reached.
+            assertThat(LicenseVerifier.verifyAt(
+                                    issued.token(), publicKey, Clock.fixed(Instant.ofEpochSecond(expectedTokenExp - 1)))
+                            .isValid())
+                    .as("token must verify inside the grace window")
+                    .isTrue();
+            assertThat(LicenseVerifier.verifyAt(
+                                    issued.token(), publicKey, Clock.fixed(Instant.ofEpochSecond(expectedTokenExp)))
+                            .isValid())
+                    .as("token must fail once the grace-extended exp is reached")
+                    .isFalse();
         }
     }
 

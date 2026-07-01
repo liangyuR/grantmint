@@ -98,6 +98,12 @@ public class IssuanceService {
 
         Instant now = clock.instant();
         OffsetDateTime expiresAt = computeExpiry(policy, command.expiresAtOverride(), now);
+        // The token's cryptographic exp deliberately trails the database expiry by the policy's
+        // grace period: online checks flip at expires_at, while the offline artefact keeps
+        // verifying through the grace window (LICENSE_LIFECYCLE.md, "Expiry and grace periods").
+        // A trial needs nothing extra — it is a short-duration policy, so its deadline
+        // self-enforces offline through this same exp.
+        OffsetDateTime tokenExp = expiresAt == null ? null : expiresAt.plusDays(policy.getGracePeriodDays());
         int seatLimit = command.seatOverride() != null ? command.seatOverride() : policy.getMaxSeats();
 
         Map<String, Object> entitlementSnapshot = copyOf(policy.getEntitlements());
@@ -125,7 +131,7 @@ public class IssuanceService {
                 new Holder(command.holderName(), command.holderEmail()),
                 now.getEpochSecond(),
                 null,
-                expiresAt == null ? null : expiresAt.toEpochSecond(),
+                tokenExp == null ? null : tokenExp.toEpochSecond(),
                 EntitlementSet.decode(entitlementSnapshot),
                 constraintSnapshot,
                 seatLimit);
