@@ -25,7 +25,9 @@ public class AdminUser {
     @GeneratedValue
     private UUID id;
 
-    @Column(nullable = false, unique = true)
+    // Uniqueness is declared once on the @Table constraint (uq_admin_users_username), which matches
+    // the Flyway schema by name; a second @Column(unique=true) would be a redundant, unnamed duplicate.
+    @Column(nullable = false)
     private String username;
 
     /** Argon2id PHC hash of the password. The plaintext is never stored. */

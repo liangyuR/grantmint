@@ -101,6 +101,65 @@ class CanonicalJsonTest {
                 .hasMessageContaining("Duplicate object key 'b'");
     }
 
+    @Test
+    void parsesWellFormedNumbers() {
+        assertThat(CanonicalJson.parse("0")).isEqualTo(0L);
+        assertThat(CanonicalJson.parse("-0")).isEqualTo(0L);
+        assertThat(CanonicalJson.parse("-42")).isEqualTo(-42L);
+        assertThat(CanonicalJson.parse("10")).isEqualTo(10L);
+        assertThat(CanonicalJson.parse("1782666000")).isEqualTo(1782666000L);
+        // Beyond long range promotes to BigInteger, exactly as before the lexer was tightened.
+        assertThat(CanonicalJson.parse("123456789012345678901234567890"))
+                .isEqualTo(new java.math.BigInteger("123456789012345678901234567890"));
+        // Well-formed fractions/exponents still parse to Double (then rejected downstream as
+        // non-integral claims — the token model accepts only integers, but the lexer stays general).
+        assertThat(CanonicalJson.parse("0.5")).isEqualTo(0.5d);
+        assertThat(CanonicalJson.parse("-0.5")).isEqualTo(-0.5d);
+        assertThat(CanonicalJson.parse("1e3")).isEqualTo(1000.0d);
+        assertThat(CanonicalJson.parse("1E+2")).isEqualTo(100.0d);
+        assertThat(CanonicalJson.parse("2.5e-1")).isEqualTo(0.25d);
+    }
+
+    @Test
+    void parseRejectsMalformedNumbersAsJsonParseException() {
+        // Each violates the strict RFC 8259 number grammar and must surface as a JsonParseException —
+        // never a leaked raw NumberFormatException — matching the stricter Swift/Go JSON parsers so a
+        // hand-crafted token is rejected identically across every SDK.
+        for (String malformed : List.of(
+                "+5", // leading plus
+                "01", // leading zero
+                "-01", // leading zero after sign
+                "00", // leading zero
+                ".5", // bare fraction, no integer part
+                "-.5", // sign then bare fraction
+                "1.", // missing fraction digits
+                "1e", // missing exponent digits
+                "1e+", // missing exponent digits after sign
+                "-", // sign only
+                "1.2.3", // two fraction points
+                "1e2e3")) { // two exponents
+            assertThatThrownBy(() -> CanonicalJson.parse(malformed))
+                    .as("parsing '%s'", malformed)
+                    .isInstanceOf(JsonParseException.class);
+        }
+    }
+
+    @Test
+    void rejectsMalformedNumbersNestedInStructures() {
+        assertThatThrownBy(() -> CanonicalJson.parse("{\"a\":01}")).isInstanceOf(JsonParseException.class);
+        assertThatThrownBy(() -> CanonicalJson.parse("[1,+2]")).isInstanceOf(JsonParseException.class);
+        assertThatThrownBy(() -> CanonicalJson.parse("{\"a\":1.}")).isInstanceOf(JsonParseException.class);
+    }
+
+    /**
+     * Every {@code long} serializes to a strict integer literal that parses back to the same value —
+     * the tightened number lexer accepts all well-formed integers and regresses none.
+     */
+    @Property(tries = 1000)
+    void everyLongRoundTripsThroughStrictNumberLexer(@ForAll long value) {
+        assertThat(CanonicalJson.parse(Long.toString(value))).isEqualTo(value);
+    }
+
     /**
      * Task M1: canonical encode/decode round-trips byte-for-byte. Serializing, parsing, and
      * re-serializing any supported value yields identical bytes — the property the signing input

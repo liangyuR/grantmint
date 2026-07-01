@@ -54,8 +54,12 @@ public class License implements Persistable<UUID> {
     @JoinColumn(name = "policy_id", nullable = false)
     private Policy policy;
 
-    /** Short, human-readable online identifier, e.g. {@code K7P2-9QXM-4T1A}. Unique. */
-    @Column(name = "key_id", nullable = false, unique = true)
+    /**
+     * Short, human-readable online identifier, e.g. {@code K7P2-9QXM-4T1Y}. Unique — the constraint is
+     * declared once on the {@code @Table} annotation ({@code uq_licenses_key_id}, matching Flyway by
+     * name); a second {@code @Column(unique=true)} would be a redundant, unnamed duplicate.
+     */
+    @Column(name = "key_id", nullable = false)
     private String keyId;
 
     /** Full Ed25519-signed offline artefact (base64url). Immutable once written. */

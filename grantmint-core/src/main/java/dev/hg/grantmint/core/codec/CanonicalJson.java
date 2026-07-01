@@ -35,7 +35,11 @@ import java.util.TreeMap;
  * <p><strong>Parse strictness:</strong> {@link #parse} rejects objects with duplicate member names.
  * The JSON spec leaves duplicates undefined and verifiers differ (first- vs last-wins); pinning them
  * as an error keeps claim interpretation identical across the Java/Swift/Go SDKs. Canonically-issued
- * tokens never contain duplicates, so only hand-crafted input is affected.
+ * tokens never contain duplicates, so only hand-crafted input is affected. Numbers likewise follow
+ * the strict RFC 8259 grammar — a leading {@code +}, a leading zero ({@code 01}), a bare {@code .5}, or
+ * a truncated {@code 1.}/{@code 1e} is rejected as malformed rather than coerced, so the Java lexer
+ * stays exactly as strict as the Swift/Go JSON parsers and the same bytes verify-or-fail identically
+ * everywhere.
  *
  * <p>See docs/features/LICENSE_TOKEN_FORMAT.md (Canonical JSON).
  */
@@ -356,25 +360,53 @@ public final class CanonicalJson {
 
         private Object readNumber() {
             int start = index;
-            if (peek() == '-') {
+            // Strict RFC 8259 number grammar:  [ '-' ] int [ frac ] [ exp ]
+            //   int  = '0' | ( digit1-9 *DIGIT )      frac = '.' 1*DIGIT
+            //   exp  = ('e'|'E') ['+'|'-'] 1*DIGIT
+            // A leading '+', a leading zero ("01"), a bare ".5", or a truncated "1."/"1e" is rejected
+            // here as a JsonParseException rather than funneled into Double.parseDouble — keeping the
+            // Java lexer exactly as strict as the Swift/Go JSON parsers, so the same bytes are
+            // accepted-or-rejected identically across every SDK (cross-verifier parity).
+            if (!atEnd() && s.charAt(index) == '-') {
                 index++;
             }
+            // Integer part (required).
+            if (atEnd()) {
+                throw new JsonParseException("Invalid number at index " + start);
+            }
+            char first = s.charAt(index);
+            if (first == '0') {
+                index++;
+                if (!atEnd() && isDigit(s.charAt(index))) {
+                    throw new JsonParseException("Leading zero in number at index " + start);
+                }
+            } else if (first >= '1' && first <= '9') {
+                index++;
+                consumeDigits();
+            } else {
+                throw new JsonParseException("Invalid number at index " + start);
+            }
             boolean integral = true;
-            while (!atEnd()) {
-                char c = s.charAt(index);
-                if (c >= '0' && c <= '9') {
+            // Fraction (optional).
+            if (!atEnd() && s.charAt(index) == '.') {
+                integral = false;
+                index++;
+                if (!consumeDigits()) {
+                    throw new JsonParseException("Missing fraction digits at index " + start);
+                }
+            }
+            // Exponent (optional).
+            if (!atEnd() && (s.charAt(index) == 'e' || s.charAt(index) == 'E')) {
+                integral = false;
+                index++;
+                if (!atEnd() && (s.charAt(index) == '+' || s.charAt(index) == '-')) {
                     index++;
-                } else if (c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') {
-                    integral = false;
-                    index++;
-                } else {
-                    break;
+                }
+                if (!consumeDigits()) {
+                    throw new JsonParseException("Missing exponent digits at index " + start);
                 }
             }
             String literal = s.substring(start, index);
-            if (literal.isEmpty() || "-".equals(literal)) {
-                throw new JsonParseException("Invalid number at index " + start);
-            }
             if (integral) {
                 try {
                     return Long.parseLong(literal);
@@ -383,6 +415,19 @@ public final class CanonicalJson {
                 }
             }
             return Double.parseDouble(literal);
+        }
+
+        /** Consume zero or more ASCII digits; return whether at least one was consumed. */
+        private boolean consumeDigits() {
+            int from = index;
+            while (!atEnd() && isDigit(s.charAt(index))) {
+                index++;
+            }
+            return index > from;
+        }
+
+        private static boolean isDigit(char c) {
+            return c >= '0' && c <= '9';
         }
 
         private char peek() {

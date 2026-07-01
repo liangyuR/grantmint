@@ -14,7 +14,6 @@ import java.security.spec.EdECPoint;
 import java.security.spec.EdECPrivateKeySpec;
 import java.security.spec.EdECPublicKeySpec;
 import java.security.spec.NamedParameterSpec;
-import java.util.Arrays;
 import java.util.Objects;
 
 /**
@@ -128,15 +127,5 @@ public final class Ed25519Keys {
             be[i] = le[le.length - 1 - i];
         }
         return new BigInteger(1, be);
-    }
-
-    /** Constant-time comparison for raw key/signature material. */
-    public static boolean constantTimeEquals(byte[] a, byte[] b) {
-        return java.security.MessageDigest.isEqual(a, b);
-    }
-
-    /** Defensive copy helper kept out of callers' way. */
-    static byte[] copyOf(byte[] value) {
-        return Arrays.copyOf(value, value.length);
     }
 }

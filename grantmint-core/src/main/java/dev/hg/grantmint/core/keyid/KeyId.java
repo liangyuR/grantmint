@@ -44,7 +44,7 @@ public final class KeyId {
     private KeyId() {}
 
     /**
-     * Generate a fresh, checksum-valid key ID such as {@code K7P2-9QXM-4T1A}.
+     * Generate a fresh, checksum-valid key ID such as {@code K7P2-9QXM-4T1Y}.
      *
      * @param random the randomness source for the eleven payload characters
      */

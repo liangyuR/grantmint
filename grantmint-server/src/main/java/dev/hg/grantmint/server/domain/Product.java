@@ -23,7 +23,9 @@ public class Product {
     @GeneratedValue
     private UUID id;
 
-    @Column(nullable = false, unique = true)
+    // Uniqueness is declared once, on the @Table constraint (uq_products_slug), which matches the
+    // Flyway schema by name; a second @Column(unique=true) would be a redundant, unnamed duplicate.
+    @Column(nullable = false)
     private String slug;
 
     @Column(nullable = false)
