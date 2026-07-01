@@ -5,6 +5,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
@@ -85,11 +86,16 @@ public class GrantmintSecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(new IssuanceKeyAuthFilter(apiKeys), UsernamePasswordAuthenticationFilter.class)
-                // Flat authority gate is correct while issuance + revoke are the only operations here.
-                // When suspend/revoke endpoints land (M7), split into per-method matchers so a SCOPE_ISSUE
-                // -only key cannot revoke: e.g. requestMatchers(POST,
-                // "/issuance/**/revoke").hasAuthority(SCOPE_REVOKE).
-                .authorizeHttpRequests(auth -> auth.anyRequest().hasAnyAuthority("SCOPE_ISSUE", "SCOPE_REVOKE"))
+                // Per-method split: lifecycle mutations (suspend/reinstate/revoke) demand SCOPE_REVOKE,
+                // everything else (minting) demands SCOPE_ISSUE. Today's issuance keys carry both, but
+                // a future issue-only credential can never kill a license.
+                .authorizeHttpRequests(auth -> auth.requestMatchers(
+                                HttpMethod.POST, "/issuance/licenses/*/suspend", "/issuance/licenses/*/reinstate")
+                        .hasAuthority("SCOPE_REVOKE")
+                        .requestMatchers(HttpMethod.DELETE, "/issuance/licenses/*")
+                        .hasAuthority("SCOPE_REVOKE")
+                        .anyRequest()
+                        .hasAuthority("SCOPE_ISSUE"))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(errors).accessDeniedHandler(errors))
                 .build();
     }

@@ -1,5 +1,6 @@
 package dev.hg.grantmint.server.api;
 
+import dev.hg.grantmint.core.license.IllegalLicenseTransitionException;
 import dev.hg.grantmint.server.activation.ActivationNotFoundException;
 import dev.hg.grantmint.server.activation.SeatLimitExceededException;
 import dev.hg.grantmint.server.validation.LicenseNotValidException;
@@ -48,6 +49,17 @@ public class ApiExceptionHandler {
     @ExceptionHandler(SeatLimitExceededException.class)
     ResponseEntity<ApiError> handleSeatLimit(SeatLimitExceededException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("seat_limit_exceeded", ex.getMessage()));
+    }
+
+    /**
+     * A lifecycle event applied to a state it is not legal from (e.g. reinstating a revoked
+     * license) — a 409 with {@code invalid_state_transition}. The state machine's refusal is the
+     * product working: nothing may ever silently un-revoke.
+     */
+    @ExceptionHandler(IllegalLicenseTransitionException.class)
+    ResponseEntity<ApiError> handleIllegalTransition(IllegalLicenseTransitionException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError("invalid_state_transition", ex.getMessage()));
     }
 
     /** No active seat for this fingerprint — a 404 with {@code activation_not_found}. */
