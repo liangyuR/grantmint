@@ -31,17 +31,17 @@ import org.springframework.stereotype.Service;
 public class ValidationService {
 
     /** A revoked license — terminal; never valid again. */
-    static final String LICENSE_REVOKED = "license_revoked";
+    public static final String LICENSE_REVOKED = "license_revoked";
     /** A suspended license — temporarily blocked, reinstatable. */
-    static final String LICENSE_SUSPENDED = "license_suspended";
+    public static final String LICENSE_SUSPENDED = "license_suspended";
     /** Past its expiry (by database status or token {@code exp}). */
-    static final String LICENSE_EXPIRED = "license_expired";
+    public static final String LICENSE_EXPIRED = "license_expired";
     /** Before its not-before instant. */
-    static final String LICENSE_NOT_YET_VALID = "license_not_yet_valid";
+    public static final String LICENSE_NOT_YET_VALID = "license_not_yet_valid";
     /** Issued but never activated (status still {@code created}). */
-    static final String LICENSE_INACTIVE = "license_inactive";
+    public static final String LICENSE_INACTIVE = "license_inactive";
     /** The stored token failed signature/structure verification — a server-integrity fault. */
-    static final String LICENSE_INVALID = "license_invalid";
+    public static final String LICENSE_INVALID = "license_invalid";
 
     private final ValidationCache cache;
     private final ValidationSnapshotLoader loader;

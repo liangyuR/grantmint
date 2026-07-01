@@ -1,5 +1,7 @@
 package dev.hg.grantmint.server.api;
 
+import dev.hg.grantmint.server.activation.ActivationNotFoundException;
+import dev.hg.grantmint.server.activation.SeatLimitExceededException;
 import dev.hg.grantmint.server.validation.LicenseNotValidException;
 import dev.hg.grantmint.server.validation.RateLimitExceededException;
 import java.util.NoSuchElementException;
@@ -36,6 +38,22 @@ public class ApiExceptionHandler {
     @ExceptionHandler(LicenseNotValidException.class)
     ResponseEntity<ApiError> handleLicenseNotValid(LicenseNotValidException ex) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(new ApiError(ex.code(), ex.getMessage()));
+    }
+
+    /**
+     * The node-locked seat limit blocked a new fingerprint — a 409 with the stable code
+     * {@code seat_limit_exceeded}. A recoverable, user-facing condition ("deactivate another
+     * device"), distinct from the 422 stop-granting-entitlements family.
+     */
+    @ExceptionHandler(SeatLimitExceededException.class)
+    ResponseEntity<ApiError> handleSeatLimit(SeatLimitExceededException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("seat_limit_exceeded", ex.getMessage()));
+    }
+
+    /** No active seat for this fingerprint — a 404 with {@code activation_not_found}. */
+    @ExceptionHandler(ActivationNotFoundException.class)
+    ResponseEntity<ApiError> handleActivationNotFound(ActivationNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiError("activation_not_found", ex.getMessage()));
     }
 
     /**

@@ -74,7 +74,7 @@ public class AuditService {
      * pattern, and any string containing a colon is parsed as an IPv6 literal (a colon can never
      * appear in a hostname, so {@link InetAddress#getByName} performs no name resolution).
      */
-    static String normalizeIpOrNull(String ipAddress) {
+    public static String normalizeIpOrNull(String ipAddress) {
         if (ipAddress == null) {
             return null;
         }
