@@ -1,0 +1,154 @@
+// The Swift half of the cross-verifier parity harness: verifies the pinned vector from
+// docs/testing/CROSS_VERIFIER_FIXTURES.md and rejects every documented alternate encoding.
+// The fixture's private seed is a published TEST vector (gitleaks:allow) — it signs nothing real.
+import CryptoKit
+import XCTest
+
+@testable import GrantmintVerifier
+
+final class GrantmintVerifierTests: XCTestCase {
+
+    // The pinned vector — must match CROSS_VERIFIER_FIXTURES.md and both Java CrossVerifierFixtureTests.
+    static let seedHex = "52ec811207633ad9f4a283d8eb887630e6183f7b6dfa8ea02fc4b9f9c7438aec"  // gitleaks:allow
+    static let publicHex = "34687417cc2f326d57e0a3702bb8bafda49bf8bdbb9f9ed224d0e0deb8be4101"
+    static let iat: Int64 = 1_751_130_000
+    static let exp: Int64 = 1_782_666_000
+    static let token =
+        "eyJhbGciOiJFZERTQSIsImNydiI6IkVkMjU1MTkiLCJraWQiOiJHTUsxIiwidHlwIjoiR01UIn0."  // gitleaks:allow — published golden vector
+        + "eyJjb24iOnsibm9kZUxvY2tlZCI6dHJ1ZSwic2VhdHMiOjJ9LCJlbnQiOnsiYWlfYXNzaXN0Ijp0cnVlLCJtYXhfZGV2aWNlcyI6MiwibWF4X3Byb2plY3RzIjoxMCwidGVhbV9zeW5jIjp0cnVlLCJ0aWVyIjoicHJvIn0sImV4cCI6MTc4MjY2NjAwMCwiaGxkIjp7ImUiOiJqYW5lQGV4YW1wbGUuY29tIiwibiI6IkphbmUgRG9lIn0sImlhdCI6MTc1MTEzMDAwMCwia2lkIjoiSzdQMi05UVhNLTRUMUEiLCJsaWQiOiJsaWNfMDFKWjhYOVE0UjdNMkszUDVUNlY4VzBZMkEiLCJwb2wiOiJwb2xfcHJvX2FubnVhbCIsInByZCI6InByb2RfYWNtZV9ub3RlcyIsInNlYXQiOjIsInZlciI6MX0."
+        + "dE2gDMZMeggftOMOeLjAK3fOu5Ax8b9DKSYSGb0N7pWoUZbZ43jdMRzrNTuQ734MsBGmFEi5bDoCFpJ0js8zDg"
+
+    static let base64urlAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+    static var publicKeyBase64: String { data(hex: publicHex).base64EncodedString() }
+
+    static func data(hex: String) -> Data {
+        var bytes = [UInt8]()
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            bytes.append(UInt8(hex[index..<next], radix: 16)!)
+            index = next
+        }
+        return Data(bytes)
+    }
+
+    /// Mint a token from raw JSON under the fixture's published test seed — for adversarial
+    /// shapes the canonical issuer refuses to produce (duplicate keys, floats, a missing exp).
+    static func signRaw(headerJSON: String, payloadJSON: String) throws -> String {
+        let key = try Curve25519.Signing.PrivateKey(rawRepresentation: data(hex: seedHex))
+        func b64url(_ raw: Data) -> String {
+            raw.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        let headerSeg = b64url(Data(headerJSON.utf8))
+        let payloadSeg = b64url(Data(payloadJSON.utf8))
+        let signature = try key.signature(for: Data((headerSeg + "." + payloadSeg).utf8))
+        return headerSeg + "." + payloadSeg + "." + b64url(signature)
+    }
+
+    static let pinnedHeaderJSON = #"{"alg":"EdDSA","crv":"Ed25519","kid":"GMK1","typ":"GMT"}"#
+
+    private func assertThrows(_ token: String, _ expected: LicenseError, at now: Int64 = iat,
+        _ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertThrowsError(
+            try verifyLicense(token, publicKeyBase64: Self.publicKeyBase64, now: now),
+            message, file: file, line: line
+        ) { error in
+            XCTAssertEqual(error as? LicenseError, expected, message, file: file, line: line)
+        }
+    }
+
+    func testFixtureTokenVerifies() throws {
+        let lic = try verifyLicense(Self.token, publicKeyBase64: Self.publicKeyBase64, now: Self.iat)
+        XCTAssertEqual(lic.keyId, "K7P2-9QXM-4T1A")
+        XCTAssertEqual(lic.product, "prod_acme_notes")
+        XCTAssertEqual(lic.policy, "pol_pro_annual")
+        XCTAssertEqual(lic.expiresAt, Date(timeIntervalSince1970: TimeInterval(Self.exp)))
+        XCTAssertEqual(lic.entitlements["team_sync"] as? Bool, true)
+        XCTAssertEqual(lic.entitlements["max_devices"] as? Int64, 2)
+        XCTAssertEqual(lic.entitlements["tier"] as? String, "pro")
+    }
+
+    func testExpiredAtExactlyExpAndAfter() throws {
+        // exp is exclusive: the token dies at the exp instant itself.
+        assertThrows(Self.token, .expired, at: Self.exp)
+        assertThrows(Self.token, .expired, at: Self.exp + 1)
+        XCTAssertNoThrow(try verifyLicense(Self.token, publicKeyBase64: Self.publicKeyBase64, now: Self.exp - 1))
+    }
+
+    func testNonCanonicalSignatureSpellingsAreMalformed() {
+        // The 86-char signature segment leaves 4 unused trailing bits: 15 alternate spellings
+        // decode to the SAME signature bytes. Every one must be malformed.
+        let alphabet = Array(Self.base64urlAlphabet)
+        let last = Self.token.last!
+        let value = alphabet.firstIndex(of: last)!
+        XCTAssertEqual(value % 16, 0, "canonical final char must have zero trailing bits")
+        for bits in 1...15 {
+            let spelled = String(Self.token.dropLast()) + String(alphabet[value | bits])
+            assertThrows(spelled, .malformed, "alternate spelling bits=\(bits)")
+        }
+    }
+
+    func testPaddedAndStandardAlphabetSegmentsAreMalformed() {
+        let parts = Self.token.split(separator: ".").map(String.init)
+        assertThrows(parts[0] + "=." + parts[1] + "." + parts[2], .malformed, "padded segment")
+        assertThrows(parts[0] + "." + parts[1] + ".+" + parts[2].dropFirst(), .malformed, "standard alphabet")
+    }
+
+    func testTamperedPayloadIsRejected() {
+        let parts = Self.token.split(separator: ".").map(String.init)
+        var payload = Array(parts[1])
+        payload[10] = payload[10] == "A" ? "B" : "A"
+        assertThrows(parts[0] + "." + String(payload) + "." + parts[2], .badSignature)
+    }
+
+    func testAlgConfusionIsRejectedBeforeSignature() throws {
+        // A pinning failure must surface as malformed even with a garbage signature — proof the
+        // header pin runs before any signature work.
+        func b64url(_ raw: Data) -> String {
+            raw.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        let header = b64url(Data(#"{"alg":"none","crv":"Ed25519","kid":"GMK1","typ":"GMT"}"#.utf8))
+        let payload = Self.token.split(separator: ".").map(String.init)[1]
+        let garbageSig = b64url(Data(count: 64))
+        assertThrows(header + "." + payload + "." + garbageSig, .malformed)
+    }
+
+    func testValidlySignedButNonStrictPayloadsAreMalformed() throws {
+        let requiredTail = #""hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p""#
+        let cases: [(String, String)] = [
+            ("duplicate key", #"{"exp":null,"exp":null,"# + requiredTail + #","ver":1}"#),
+            ("float exp", #"{"exp":1.5,"# + requiredTail + #","ver":1}"#),
+            ("exponent number", #"{"exp":2e9,"# + requiredTail + #","ver":1}"#),
+            ("oversized integer", #"{"exp":99999999999999999999,"# + requiredTail + #","ver":1}"#),
+            ("missing exp", "{" + requiredTail + #","ver":1}"#),
+            ("unknown ver", #"{"exp":null,"# + requiredTail + #","ver":2}"#),
+            ("missing pol/hld/iat", #"{"exp":null,"kid":"K","lid":"l","prd":"p","ver":1}"#),
+            ("trailing content", #"{"exp":null,"# + requiredTail + #","ver":1} {}"#),
+        ]
+        for (name, payloadJSON) in cases {
+            let token = try Self.signRaw(headerJSON: Self.pinnedHeaderJSON, payloadJSON: payloadJSON)
+            assertThrows(token, .malformed, name)
+        }
+    }
+
+    func testPerpetualNullExpNeverExpires() throws {
+        let payload = #"{"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}"#
+        let token = try Self.signRaw(headerJSON: Self.pinnedHeaderJSON, payloadJSON: payload)
+        XCTAssertNoThrow(
+            try verifyLicense(token, publicKeyBase64: Self.publicKeyBase64, now: 4_102_444_800))  // year 2100
+    }
+
+    func testNbfGate() throws {
+        let payload = #"{"exp":null,"hld":{"e":"e","n":"n"},"iat":900,"kid":"K","lid":"l","nbf":1000,"pol":"po","prd":"p","ver":1}"#
+        let token = try Self.signRaw(headerJSON: Self.pinnedHeaderJSON, payloadJSON: payload)
+        assertThrows(token, .notYetValid, at: 999)
+        XCTAssertNoThrow(try verifyLicense(token, publicKeyBase64: Self.publicKeyBase64, now: 1000))  // nbf inclusive
+    }
+}
