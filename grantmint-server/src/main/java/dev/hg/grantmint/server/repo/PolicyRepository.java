@@ -12,4 +12,11 @@ public interface PolicyRepository extends JpaRepository<Policy, UUID> {
     Optional<Policy> findByProduct_IdAndCode(UUID productId, String code);
 
     List<Policy> findByProduct_Id(UUID productId);
+
+    /**
+     * All policies with this code across products. Policy codes are unique only per product, so the
+     * webhook policy-map resolver treats anything other than exactly one match as a
+     * mapping-configuration error rather than guessing which product was meant.
+     */
+    List<Policy> findByCode(String code);
 }

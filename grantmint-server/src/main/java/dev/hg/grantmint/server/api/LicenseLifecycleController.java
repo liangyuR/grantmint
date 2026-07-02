@@ -1,5 +1,6 @@
 package dev.hg.grantmint.server.api;
 
+import dev.hg.grantmint.server.audit.AuditActorType;
 import dev.hg.grantmint.server.lifecycle.LicenseLifecycleService;
 import dev.hg.grantmint.server.lifecycle.LicenseLifecycleService.LifecycleResult;
 import dev.hg.grantmint.server.security.ApiKeyAuthentication;
@@ -69,7 +70,12 @@ public class LicenseLifecycleController {
             HttpServletRequest httpRequest) {
         ApiKeyAuthentication key = (ApiKeyAuthentication) authentication;
         LifecycleResult result = lifecycle.suspend(
-                keyId, key.productId(), request == null ? null : request.reason(), actorOf(key), ip(httpRequest));
+                keyId,
+                key.productId(),
+                request == null ? null : request.reason(),
+                actorOf(key),
+                AuditActorType.API_KEY,
+                ip(httpRequest));
         return ResponseEntity.ok(LifecycleResponse.of(result));
     }
 
@@ -94,7 +100,8 @@ public class LicenseLifecycleController {
     ResponseEntity<LifecycleResponse> reinstate(
             @PathVariable String keyId, Authentication authentication, HttpServletRequest httpRequest) {
         ApiKeyAuthentication key = (ApiKeyAuthentication) authentication;
-        LifecycleResult result = lifecycle.reinstate(keyId, key.productId(), actorOf(key), ip(httpRequest));
+        LifecycleResult result =
+                lifecycle.reinstate(keyId, key.productId(), actorOf(key), AuditActorType.API_KEY, ip(httpRequest));
         return ResponseEntity.ok(LifecycleResponse.of(result));
     }
 
@@ -125,7 +132,12 @@ public class LicenseLifecycleController {
             HttpServletRequest httpRequest) {
         ApiKeyAuthentication key = (ApiKeyAuthentication) authentication;
         LifecycleResult result = lifecycle.revoke(
-                keyId, key.productId(), request == null ? null : request.reason(), actorOf(key), ip(httpRequest));
+                keyId,
+                key.productId(),
+                request == null ? null : request.reason(),
+                actorOf(key),
+                AuditActorType.API_KEY,
+                ip(httpRequest));
         return ResponseEntity.ok(LifecycleResponse.of(result));
     }
 

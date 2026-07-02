@@ -52,24 +52,44 @@ public class LicenseLifecycleService {
 
     /** ACTIVE → SUSPENDED (recoverable pause, e.g. failed payment). */
     @Transactional
-    public LifecycleResult suspend(String keyId, UUID requesterProductId, String reason, String actor, String ip) {
-        return apply(keyId, requesterProductId, LicenseEvent.SUSPEND, reason, actor, ip);
+    public LifecycleResult suspend(
+            String keyId, UUID requesterProductId, String reason, String actor, AuditActorType actorType, String ip) {
+        return apply(keyId, requesterProductId, LicenseEvent.SUSPEND, reason, actor, actorType, ip);
     }
 
     /** SUSPENDED → ACTIVE (recovery; online checks pass again immediately). */
     @Transactional
-    public LifecycleResult reinstate(String keyId, UUID requesterProductId, String actor, String ip) {
-        return apply(keyId, requesterProductId, LicenseEvent.REINSTATE, null, actor, ip);
+    public LifecycleResult reinstate(
+            String keyId, UUID requesterProductId, String actor, AuditActorType actorType, String ip) {
+        return apply(keyId, requesterProductId, LicenseEvent.REINSTATE, null, actor, actorType, ip);
     }
 
     /** Any non-revoked state → REVOKED. Terminal — disputes get a new license, never an un-revoke. */
     @Transactional
-    public LifecycleResult revoke(String keyId, UUID requesterProductId, String reason, String actor, String ip) {
-        return apply(keyId, requesterProductId, LicenseEvent.REVOKE, reason, actor, ip);
+    public LifecycleResult revoke(
+            String keyId, UUID requesterProductId, String reason, String actor, AuditActorType actorType, String ip) {
+        return apply(keyId, requesterProductId, LicenseEvent.REVOKE, reason, actor, actorType, ip);
+    }
+
+    /**
+     * CREATED/ACTIVE/SUSPENDED → EXPIRED. Driven by the expiry sweep's siblings — the webhook layer
+     * (subscription cancelled/refunded) — rather than an admin endpoint; the sweep job itself flips
+     * rows directly on its own schedule.
+     */
+    @Transactional
+    public LifecycleResult expire(
+            String keyId, UUID requesterProductId, String reason, String actor, AuditActorType actorType, String ip) {
+        return apply(keyId, requesterProductId, LicenseEvent.EXPIRE, reason, actor, actorType, ip);
     }
 
     private LifecycleResult apply(
-            String keyId, UUID requesterProductId, LicenseEvent event, String reason, String actor, String ip) {
+            String keyId,
+            UUID requesterProductId,
+            LicenseEvent event,
+            String reason,
+            String actor,
+            AuditActorType actorType,
+            String ip) {
         // Same lock as the activation path: lifecycle and seat changes serialize on the row.
         License license = licenses.findByKeyIdForUpdate(keyId)
                 .orElseThrow(() -> new NoSuchElementException("License not found: " + keyId));
@@ -96,6 +116,7 @@ public class LicenseLifecycleService {
                 license.setRevokedAt(now);
                 license.setRevocationReason(reason);
             }
+            case EXPIRE -> license.setStatus(LicenseStatus.EXPIRED);
             default -> throw new IllegalStateException("Unsupported admin lifecycle event: " + event);
         }
 
@@ -107,7 +128,7 @@ public class LicenseLifecycleService {
         }
         audit.record(
                 actor,
-                AuditActorType.API_KEY,
+                actorType,
                 auditActionOf(event),
                 "license",
                 license.getId().toString(),
@@ -133,6 +154,7 @@ public class LicenseLifecycleService {
             case SUSPEND -> "license.suspended";
             case REINSTATE -> "license.reinstated";
             case REVOKE -> "license.revoked";
+            case EXPIRE -> "license.expired";
             default -> throw new IllegalStateException("Unsupported admin lifecycle event: " + event);
         };
     }

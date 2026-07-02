@@ -79,6 +79,16 @@ public class IssuanceService {
      */
     @Transactional
     public IssuedLicense issue(IssuanceCommand command) {
+        return issue(command, AuditActorType.API_KEY);
+    }
+
+    /**
+     * Variant with explicit audit attribution — the webhook layer mints with
+     * {@code AuditActorType.WEBHOOK} so the trail distinguishes provider-driven issuance from a
+     * backend's API key.
+     */
+    @Transactional
+    public IssuedLicense issue(IssuanceCommand command, AuditActorType actorType) {
         if (command.holderName() == null || command.holderName().isBlank()) {
             throw new IllegalArgumentException("holder name is required");
         }
@@ -142,7 +152,7 @@ public class IssuanceService {
 
         audit.record(
                 command.actor(),
-                AuditActorType.API_KEY,
+                actorType,
                 "license.issued",
                 "license",
                 license.getId().toString(),
