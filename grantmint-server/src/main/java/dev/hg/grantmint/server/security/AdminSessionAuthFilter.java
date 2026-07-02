@@ -28,7 +28,7 @@ public class AdminSessionAuthFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        String token = presentedToken(request);
+        String token = presentedToken(request, properties);
         if (token != null) {
             sessions.resolve(token).ifPresent(principal -> SecurityContextHolder.getContext()
                     .setAuthentication(new AdminAuthentication(principal)));
@@ -36,14 +36,23 @@ public class AdminSessionAuthFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    /** Prefer the bearer token (when bearer auth is enabled), else fall back to the session cookie. */
-    private String presentedToken(HttpServletRequest request) {
+    /**
+     * The session token this request presents: the bearer token when bearer auth is enabled, else
+     * the session cookie. Shared with the auth controller so logout revokes exactly the session the
+     * request authenticated with, however it was carried.
+     */
+    public static String presentedToken(HttpServletRequest request, GrantmintAdminProperties properties) {
         if (properties.session().bearerEnabled()) {
             String bearer = BearerTokens.extract(request);
             if (bearer != null) {
                 return bearer;
             }
         }
+        return sessionCookie(request, properties);
+    }
+
+    /** The raw session-cookie value, or null when absent. */
+    public static String sessionCookie(HttpServletRequest request, GrantmintAdminProperties properties) {
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
             String cookieName = properties.session().cookieName();

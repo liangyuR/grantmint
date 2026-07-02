@@ -3,18 +3,22 @@ package dev.hg.grantmint.server.api;
 import dev.hg.grantmint.server.audit.AuditActorType;
 import dev.hg.grantmint.server.audit.AuditService;
 import dev.hg.grantmint.server.security.AdminPrincipal;
+import dev.hg.grantmint.server.security.AdminSessionAuthFilter;
 import dev.hg.grantmint.server.security.AdminSessionService;
 import dev.hg.grantmint.server.security.AdminSessionService.LoginResult;
 import dev.hg.grantmint.server.security.AdminUserService;
-import dev.hg.grantmint.server.security.BearerTokens;
+import dev.hg.grantmint.server.security.GrantmintAdminProperties;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,11 +41,17 @@ public class AdminAuthController {
     private final AdminSessionService sessions;
     private final AdminUserService adminUsers;
     private final AuditService audit;
+    private final GrantmintAdminProperties properties;
 
-    public AdminAuthController(AdminSessionService sessions, AdminUserService adminUsers, AuditService audit) {
+    public AdminAuthController(
+            AdminSessionService sessions,
+            AdminUserService adminUsers,
+            AuditService audit,
+            GrantmintAdminProperties properties) {
         this.sessions = sessions;
         this.adminUsers = adminUsers;
         this.audit = audit;
+        this.properties = properties;
     }
 
     /** Exchange username/password for an opaque session bearer token. Open (no auth required). */
@@ -62,18 +72,26 @@ public class AdminAuthController {
                 session.username(),
                 Map.of(),
                 httpRequest.getRemoteAddr());
-        return ResponseEntity.ok(
-                new LoginResponse(session.token(), session.expiresAt(), new AdminSummary(session.username())));
+        // Dual delivery: the JSON body carries the token for bearer clients (CLI/API); the
+        // HttpOnly SameSite=Strict cookie carries it for the browser dashboard, where JS must
+        // never be able to read it. SameSite=Strict is also the primary login-CSRF defence.
+        return ResponseEntity.ok()
+                .header(
+                        HttpHeaders.SET_COOKIE,
+                        sessionCookie(session.token(), properties.session().ttl()))
+                .body(new LoginResponse(session.token(), session.expiresAt(), new AdminSummary(session.username())));
     }
 
-    /** Revoke the presented session (log out this client). */
+    /** Revoke the presented session (log out this client), however it was carried. */
     @PostMapping("/logout")
     @Operation(summary = "Log out (revoke this session)")
     @SecurityRequirement(name = OpenApiConfig.ADMIN_SESSION)
     ResponseEntity<Void> logout(HttpServletRequest httpRequest) {
-        String token = BearerTokens.extract(httpRequest);
+        String token = AdminSessionAuthFilter.presentedToken(httpRequest, properties);
         sessions.logout(token);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, sessionCookie("", Duration.ZERO))
+                .build();
     }
 
     /** Revoke every live session for the calling operator ("log out everywhere"). */
@@ -97,6 +115,18 @@ public class AdminAuthController {
         }
         adminUsers.changePassword(principal.adminUserId(), newPassword);
         return ResponseEntity.noContent().build();
+    }
+
+    /** The session cookie: HttpOnly (JS never reads it) + SameSite=Strict (login-CSRF defence). */
+    private String sessionCookie(String value, Duration maxAge) {
+        return ResponseCookie.from(properties.session().cookieName(), value)
+                .httpOnly(true)
+                .secure(properties.session().cookieSecure())
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(maxAge)
+                .build()
+                .toString();
     }
 
     /** @param username the operator's username @param password the plaintext password */

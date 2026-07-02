@@ -12,6 +12,10 @@ import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 /**
  * Wires the three independent, path-scoped {@link SecurityFilterChain}s — the code-level expression
@@ -19,9 +23,10 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * first: validation (hottest path) → issuance → admin. Requests outside all three matchers (e.g.
  * actuator health) bypass security entirely. See docs/features/ADMIN_AND_API_AUTH.md.
  *
- * <p>v1 note: all three chains are stateless and CSRF-disabled because authentication is by
- * bearer/header token (and our own server-side session store), not a Spring HTTP session. The
- * browser cookie + CSRF flow lands with the M11 dashboard.
+ * <p>All chains are stateless (our own server-side session store, never a Spring HTTP session).
+ * The validation and issuance chains are CSRF-disabled — header/bearer credentials cannot be sent
+ * ambiently by a browser. The admin chain enforces CSRF for cookie-authenticated writes only (the
+ * M11 dashboard flow); see the admin chain below.
  */
 @Configuration
 @EnableConfigurationProperties({GrantmintAdminProperties.class, GrantmintOpenApiProperties.class})
@@ -109,8 +114,24 @@ public class GrantmintSecurityConfig {
             GrantmintAdminProperties properties,
             SecurityErrorResponder errors)
             throws Exception {
+        // CSRF is a cookie problem: it protects exactly the requests a browser could be tricked
+        // into sending ambiently. State-changing requests carrying the session COOKIE (and no
+        // bearer header) must present the double-submit X-XSRF-TOKEN; bearer-authenticated CLI/API
+        // calls and the login exchange (whose auth IS the credentials, and whose cookie is
+        // SameSite=Strict anyway) are exempt. The token rides a JS-readable XSRF-TOKEN cookie for
+        // the SPA to echo back.
+        CookieCsrfTokenRepository csrfRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
+        // Resolve the token eagerly on every request so the XSRF-TOKEN cookie is actually written.
+        csrfHandler.setCsrfRequestAttributeName(null);
+        RequestMatcher cookieAuthenticatedWrite = request -> CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)
+                && !request.getRequestURI().equals("/admin/auth/login")
+                && request.getHeader("Authorization") == null
+                && AdminSessionAuthFilter.sessionCookie(request, properties) != null;
         return http.securityMatcher("/admin/**")
-                .csrf(csrf -> csrf.disable())
+                .csrf(csrf -> csrf.csrfTokenRepository(csrfRepository)
+                        .csrfTokenRequestHandler(csrfHandler)
+                        .requireCsrfProtectionMatcher(cookieAuthenticatedWrite))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(
                         new AdminSessionAuthFilter(sessions, properties), UsernamePasswordAuthenticationFilter.class)

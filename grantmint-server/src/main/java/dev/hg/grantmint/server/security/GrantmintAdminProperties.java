@@ -22,9 +22,12 @@ public record GrantmintAdminProperties(
      * @param ttl absolute lifetime of a freshly minted session token
      * @param cookieName name of the optional browser session cookie
      * @param bearerEnabled whether {@code Authorization: Bearer gm_sess_…} is accepted (for CLI/API)
+     * @param cookieSecure whether the session cookie carries the {@code Secure} attribute — keep
+     *     {@code true} (the default) everywhere except plain-http local development
      */
     public record Session(
             @DefaultValue("8h") Duration ttl,
             @DefaultValue("gm_admin_session") String cookieName,
-            @DefaultValue("true") boolean bearerEnabled) {}
+            @DefaultValue("true") boolean bearerEnabled,
+            @DefaultValue("true") boolean cookieSecure) {}
 }
