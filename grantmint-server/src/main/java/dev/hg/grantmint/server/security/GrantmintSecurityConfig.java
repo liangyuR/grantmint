@@ -121,6 +121,11 @@ public class GrantmintSecurityConfig {
         // SameSite=Strict anyway) are exempt. The token rides a JS-readable XSRF-TOKEN cookie for
         // the SPA to echo back.
         CookieCsrfTokenRepository csrfRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        // Pin the XSRF-TOKEN cookie's Secure attribute to the same property the session cookie
+        // honors, instead of Spring's request.isSecure() default — behind a TLS-terminating proxy
+        // the request looks plain-HTTP and the default would silently drop the attribute.
+        csrfRepository.setCookieCustomizer(
+                cookie -> cookie.secure(properties.session().cookieSecure()));
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
         // Resolve the token eagerly on every request so the XSRF-TOKEN cookie is actually written.
         csrfHandler.setCsrfRequestAttributeName(null);

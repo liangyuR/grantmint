@@ -55,6 +55,15 @@ class AdminCookieCsrfFlowIntegrationTest extends PostgresIntegrationTest {
         assertThat(setCookie).contains("HttpOnly");
         assertThat(setCookie).contains("SameSite=Strict");
         assertThat(setCookie).contains("Path=/");
+
+        // The XSRF-TOKEN cookie's Secure attribute is pinned to the same cookie-secure property as
+        // the session cookie (false in this test), not left to Spring's request.isSecure() default.
+        String xsrfCookie = result.getResponse().getHeaders("Set-Cookie").stream()
+                .filter(header -> header.startsWith("XSRF-TOKEN="))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no XSRF-TOKEN Set-Cookie header on login"));
+        assertThat(xsrfCookie).doesNotContain("Secure");
+        assertThat(setCookie).doesNotContain("Secure");
     }
 
     @Test

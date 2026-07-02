@@ -41,7 +41,13 @@ class LayeringArchitectureTest {
                         "dev.hg.grantmint.server.webhook..",
                         "dev.hg.grantmint.server.signing..",
                         "dev.hg.grantmint.server.audit..",
-                        "dev.hg.grantmint.server.admin..")
+                        "dev.hg.grantmint.server.admin..",
+                        // The auth subsystem (filters, key/session services, principals) is a service
+                        // like any other: controllers may use its types, it may touch domain/repo, and
+                        // it must never reach up into the api package. Omitting it here would exempt
+                        // every dependency to/from it (consideringOnlyDependenciesInLayers) — the
+                        // blind spot the M6–M10 audit flagged.
+                        "dev.hg.grantmint.server.security..")
                 .layer("Domain")
                 .definedBy("dev.hg.grantmint.server.domain..", "dev.hg.grantmint.server.repo..")
                 .whereLayer("Web")
