@@ -7,16 +7,24 @@ import picocli.CommandLine.Command;
 /**
  * Root command for the Grantmint CLI.
  *
- * <p>Subcommands — {@code keygen}, {@code issue}, {@code inspect}, {@code revoke}, and the
- * offline {@code verify} — are added in milestone M10. The CLI depends only on
- * {@code grantmint-core}, so offline verification needs no running server. This is the M0
- * skeleton: it wires Picocli and prints usage.
+ * <p>Subcommands: {@code keygen} (generate an Ed25519 signing keypair), the offline {@code verify}
+ * and {@code inspect} (no network — {@code grantmint-core} only), and the server-backed {@code
+ * issue} / {@code revoke} (plain {@code java.net.http.HttpClient} calls against a running
+ * Grantmint server). Offline verification needs no running server, which is the whole point of the
+ * signed-token design — see docs/features/LICENSE_TOKEN_FORMAT.md.
  */
 @Command(
         name = "grantmint",
         mixinStandardHelpOptions = true,
         version = "grantmint 0.1.0-SNAPSHOT",
-        description = "Issue, inspect, revoke, and verify Grantmint licenses.")
+        description = "Issue, inspect, revoke, and verify Grantmint licenses.",
+        subcommands = {
+            KeygenCommand.class,
+            VerifyCommand.class,
+            InspectCommand.class,
+            IssueCommand.class,
+            RevokeCommand.class
+        })
 public final class GrantmintCli implements Callable<Integer> {
 
     @Override
