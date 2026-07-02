@@ -9,7 +9,6 @@ import dev.hg.grantmint.core.crypto.Ed25519Signer;
 import dev.hg.grantmint.core.entitlement.Entitlement;
 import dev.hg.grantmint.core.entitlement.EntitlementSet;
 import dev.hg.grantmint.core.time.Clock;
-import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.SecureRandom;
@@ -184,17 +183,44 @@ class LicenseTokenTest {
 
     @Test
     void oversizedEntitlementLimitIsMalformedNotThrown() {
-        // A validly-signed token whose entitlement limit exceeds the 64-bit range. longValueExact must
-        // not leak an ArithmeticException out of verification.
-        Map<String, Object> claims = proLicense().toClaimMap();
-        Map<String, Object> ent = new LinkedHashMap<>();
-        ent.put("max_devices", new BigInteger("99999999999999999999"));
-        claims.put("ent", ent);
-        String token = signRawClaims(TokenHeader.forSigningKey("KP77").toMap(), claims);
+        // A validly-signed token whose entitlement limit exceeds the 64-bit range. The integer-only
+        // lexer rejects it at parse (CanonicalJson now refuses to even emit one), surfacing as
+        // MALFORMED — never a leaked exception out of verification.
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}";
+        String payloadJson = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"p\",\"pol\":\"po\","
+                + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + IAT + ",\"exp\":" + EXP
+                + ",\"ent\":{\"max_devices\":99999999999999999999}}";
+        String token = signRawJson(headerJson, payloadJson);
 
         VerificationResult result =
                 LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
         assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
+    void nonCanonicalSignatureEncodingIsMalformed() {
+        // The signature segment is the one part of the token not covered by the signing input, so an
+        // alternate base64url spelling of it decodes to the SAME 64 signature bytes (86 chars leave 4
+        // unused trailing bits => 15 alternate spellings). Accepting one would let a single license
+        // circulate as several distinct token strings — and split the verdict against the starter's
+        // strict verifier. Every spelling but the canonical one must be MALFORMED.
+        String token = issuer.sign(proLicense());
+        String[] segments = token.split("\\.");
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        String sig = segments[2];
+        int lastValue = alphabet.indexOf(sig.charAt(sig.length() - 1));
+        assertThat(lastValue % 16)
+                .as("canonical final character has zero trailing bits")
+                .isZero();
+        for (int bits = 1; bits <= 15; bits++) {
+            String nonCanonical = sig.substring(0, sig.length() - 1) + alphabet.charAt(lastValue | bits);
+            String remixed = segments[0] + "." + segments[1] + "." + nonCanonical;
+            VerificationResult result =
+                    LicenseVerifier.verifyAt(remixed, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+            assertThat(result.reason())
+                    .as("non-canonical signature spelling %d must not verify", bits)
+                    .isEqualTo(FailureReason.MALFORMED);
+        }
     }
 
     @Test

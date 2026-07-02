@@ -18,9 +18,11 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -135,6 +137,94 @@ class OfflineVerifierParityPropertyTest {
         OfflineTokenVerifier starter = new OfflineTokenVerifier(
                 Base64.getEncoder().encodeToString(Ed25519Keys.encodePublicKey(keys.getPublic())));
         assertThatThrownBy(() -> starter.verifyAt(tampered, NOW)).isInstanceOf(TokenVerificationException.class);
+    }
+
+    /**
+     * M6–M10 audit remediation: a non-canonical spelling of the signature segment — the final char's
+     * unused trailing bits flipped, so it decodes to the SAME 64 signature bytes — must be rejected
+     * by BOTH implementations. This was the audit's parity break: the reference verifier's lenient
+     * base64url decode accepted all 15 alternate spellings the starter refused.
+     */
+    @Property(tries = 200)
+    void bothImplementationsRejectNonCanonicalSignatureSpellings(
+            @ForAll @IntRange(min = 1, max = 15) int trailingBits) {
+        KeyPair keys = Ed25519Keys.generate(RNG);
+        Ed25519Signer signer = new Ed25519Signer(keys.getPrivate(), "GMK1");
+        String token = new LicenseTokenIssuer(signer)
+                .sign(new TokenPayload(
+                        TokenPayload.CURRENT_VERSION,
+                        "lic_canon",
+                        "K7P2-9QXM-4T1A",
+                        "acme-notes",
+                        "pro-annual",
+                        new Holder("Jane Doe", "jane@example.com"),
+                        NOW.getEpochSecond(),
+                        null,
+                        NOW.getEpochSecond() + 86400,
+                        EntitlementSet.of(List.of(Entitlement.flag("team_sync", true))),
+                        null,
+                        2));
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        int lastValue = alphabet.indexOf(token.charAt(token.length() - 1));
+        assertThat(lastValue % 16)
+                .as("canonical final signature char has zero trailing bits")
+                .isZero();
+        String nonCanonical = token.substring(0, token.length() - 1) + alphabet.charAt(lastValue | trailingBits);
+
+        assertThat(LicenseVerifier.verifyAt(nonCanonical, keys.getPublic(), dev.hg.grantmint.core.time.Clock.fixed(NOW))
+                        .isValid())
+                .as("reference must reject the alternate signature spelling")
+                .isFalse();
+        OfflineTokenVerifier starter = new OfflineTokenVerifier(
+                Base64.getEncoder().encodeToString(Ed25519Keys.encodePublicKey(keys.getPublic())));
+        assertThatThrownBy(() -> starter.verifyAt(nonCanonical, NOW))
+                .as("starter must reject the alternate signature spelling")
+                .isInstanceOf(TokenVerificationException.class);
+    }
+
+    /**
+     * M6–M10 audit remediation: the spec's claim table marks {@code pol}, {@code hld}, and {@code
+     * iat} required; the reference verifier has always enforced that, and the starter now must too —
+     * a validly-signed token missing any of them is MALFORMED in both implementations.
+     */
+    @Example
+    void bothImplementationsRequirePolHldAndIat() {
+        KeyPair keys = Ed25519Keys.generate(RNG);
+        Ed25519Signer signer = new Ed25519Signer(keys.getPrivate(), "GMK1");
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"GMK1\",\"crv\":\"Ed25519\"}";
+        String base = "\"ver\":1,\"lid\":\"l\",\"kid\":\"K7P2-9QXM-4T1A\",\"prd\":\"p\",\"exp\":"
+                + (NOW.getEpochSecond() + 86400) + ",\"ent\":{}";
+        Map<String, String> missingClaimPayloads = Map.of(
+                "pol", "{" + base + ",\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + NOW.getEpochSecond() + "}",
+                "hld", "{" + base + ",\"pol\":\"po\",\"iat\":" + NOW.getEpochSecond() + "}",
+                "iat", "{" + base + ",\"pol\":\"po\",\"hld\":{\"n\":\"n\",\"e\":\"e\"}}");
+
+        OfflineTokenVerifier starter = new OfflineTokenVerifier(
+                Base64.getEncoder().encodeToString(Ed25519Keys.encodePublicKey(keys.getPublic())));
+        missingClaimPayloads.forEach((missing, payloadJson) -> {
+            String token = signRawJson(signer, headerJson, payloadJson);
+            assertThat(LicenseVerifier.verifyAt(token, keys.getPublic(), dev.hg.grantmint.core.time.Clock.fixed(NOW))
+                            .isValid())
+                    .as("reference must reject a token missing '%s'", missing)
+                    .isFalse();
+            Throwable refusal = catchThrowable(() -> starter.verifyAt(token, NOW));
+            assertThat(refusal)
+                    .as("starter must reject a token missing '%s'", missing)
+                    .isInstanceOf(TokenVerificationException.class);
+            assertThat(((TokenVerificationException) refusal).reason())
+                    .as("missing '%s' is a MALFORMED token, not a temporal failure", missing)
+                    .isEqualTo(TokenVerificationException.Reason.MALFORMED);
+        });
+    }
+
+    /** Sign arbitrary raw JSON under the given signer — for shapes the canonical issuer refuses to mint. */
+    private static String signRawJson(Ed25519Signer signer, String headerJson, String payloadJson) {
+        java.util.Base64.Encoder b64 = Base64.getUrlEncoder().withoutPadding();
+        String headerSegment = b64.encodeToString(headerJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String payloadSegment = b64.encodeToString(payloadJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        byte[] signature = signer.sign(
+                (headerSegment + "." + payloadSegment).getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        return headerSegment + "." + payloadSegment + "." + b64.encodeToString(signature);
     }
 
     private static char rotateBase64Char(char c, int shift) {

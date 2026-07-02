@@ -20,13 +20,15 @@ import java.util.TreeMap;
  *   <li>UTF-8 encoding;
  *   <li>object keys sorted lexicographically by Unicode code point;
  *   <li>no insignificant whitespace ({@code "k":v}, entries joined by {@code ,});
- *   <li>integers only — no exponents, no {@code +0}/{@code -0}; floating point is rejected outright
- *       (our claims are epoch seconds and integer limits, and floats have no canonical text form);
+ *   <li>integers only, within signed 64-bit — no exponents, no {@code +0}/{@code -0}; floating point
+ *       and wider integers are rejected outright (our claims are epoch seconds and integer limits;
+ *       floats have no canonical text form, and the cross-language contract is int64);
  *   <li>minimal string escaping (only what JSON requires).
  * </ul>
  *
  * <p>The accepted Java value model is: {@link Map}{@code <String, ?>}, {@link List}, {@link String},
- * {@link Boolean}, {@link Integer}/{@link Long}/{@link BigInteger}, and {@code null}.
+ * {@link Boolean}, {@link Integer}/{@link Long} (plus {@link BigInteger} values that fit a long), and
+ * {@code null}.
  *
  * <p><strong>Verification rule:</strong> a verifier checks the signature against the <em>received</em>
  * payload bytes — never a re-serialization. {@link #parse} exists to <em>read</em> claims after the
@@ -35,11 +37,11 @@ import java.util.TreeMap;
  * <p><strong>Parse strictness:</strong> {@link #parse} rejects objects with duplicate member names.
  * The JSON spec leaves duplicates undefined and verifiers differ (first- vs last-wins); pinning them
  * as an error keeps claim interpretation identical across the Java/Swift/Go SDKs. Canonically-issued
- * tokens never contain duplicates, so only hand-crafted input is affected. Numbers likewise follow
- * the strict RFC 8259 grammar — a leading {@code +}, a leading zero ({@code 01}), a bare {@code .5}, or
- * a truncated {@code 1.}/{@code 1e} is rejected as malformed rather than coerced, so the Java lexer
- * stays exactly as strict as the Swift/Go JSON parsers and the same bytes verify-or-fail identically
- * everywhere.
+ * tokens never contain duplicates, so only hand-crafted input is affected. Numbers likewise mirror
+ * the canonical form: integers only — a leading {@code +}, a leading zero ({@code 01}), a bare
+ * {@code .5}, any fraction or exponent ({@code 0.5}, {@code 1e3}), or an integer outside signed
+ * 64-bit is rejected as malformed rather than coerced, so the Java lexer stays exactly as strict as
+ * the starter's reader and the same bytes verify-or-fail identically everywhere.
  *
  * <p>See docs/features/LICENSE_TOKEN_FORMAT.md (Canonical JSON).
  */
@@ -93,8 +95,16 @@ public final class CanonicalJson {
             writeString(s, out);
         } else if (value instanceof Boolean b) {
             out.append(b.booleanValue() ? "true" : "false");
-        } else if (value instanceof Integer || value instanceof Long || value instanceof BigInteger) {
+        } else if (value instanceof Integer || value instanceof Long) {
             out.append(value.toString());
+        } else if (value instanceof BigInteger bi) {
+            // The wire contract is signed 64-bit integers (Go int64, Swift Int64, StrictJson's
+            // Long); emitting a wider integer would mint a token peer verifiers must reject.
+            if (bi.bitLength() > 63) {
+                throw new IllegalArgumentException(
+                        "Integer out of signed 64-bit range is not allowed in canonical JSON: " + bi);
+            }
+            out.append(bi.toString());
         } else if (value instanceof Double || value instanceof Float) {
             throw new IllegalArgumentException("Floating point is not allowed in canonical JSON: " + value);
         } else {
@@ -360,13 +370,14 @@ public final class CanonicalJson {
 
         private Object readNumber() {
             int start = index;
-            // Strict RFC 8259 number grammar:  [ '-' ] int [ frac ] [ exp ]
-            //   int  = '0' | ( digit1-9 *DIGIT )      frac = '.' 1*DIGIT
-            //   exp  = ('e'|'E') ['+'|'-'] 1*DIGIT
-            // A leading '+', a leading zero ("01"), a bare ".5", or a truncated "1."/"1e" is rejected
-            // here as a JsonParseException rather than funneled into Double.parseDouble — keeping the
-            // Java lexer exactly as strict as the Swift/Go JSON parsers, so the same bytes are
-            // accepted-or-rejected identically across every SDK (cross-verifier parity).
+            // Canonical JSON numbers are INTEGERS ONLY:  [ '-' ] ( '0' | digit1-9 *DIGIT ),
+            // no fraction, no exponent, no leading zeros, fitting a signed 64-bit long.
+            // The writer never emits anything else (floats have no canonical text form and
+            // oversized integers are rejected at write time), so a fraction ("0.5"), an
+            // exponent ("1e3"), or a >64-bit integer is a byte sequence no Grantmint issuer
+            // produced — rejected as a JsonParseException, keeping the Java lexer exactly as
+            // strict as the starter's StrictJson and the Swift/Go readers so the same bytes
+            // are accepted-or-rejected identically across every SDK (cross-verifier parity).
             if (!atEnd() && s.charAt(index) == '-') {
                 index++;
             }
@@ -386,35 +397,18 @@ public final class CanonicalJson {
             } else {
                 throw new JsonParseException("Invalid number at index " + start);
             }
-            boolean integral = true;
-            // Fraction (optional).
-            if (!atEnd() && s.charAt(index) == '.') {
-                integral = false;
-                index++;
-                if (!consumeDigits()) {
-                    throw new JsonParseException("Missing fraction digits at index " + start);
-                }
-            }
-            // Exponent (optional).
-            if (!atEnd() && (s.charAt(index) == 'e' || s.charAt(index) == 'E')) {
-                integral = false;
-                index++;
-                if (!atEnd() && (s.charAt(index) == '+' || s.charAt(index) == '-')) {
-                    index++;
-                }
-                if (!consumeDigits()) {
-                    throw new JsonParseException("Missing exponent digits at index " + start);
+            if (!atEnd()) {
+                char nextChar = s.charAt(index);
+                if (nextChar == '.' || nextChar == 'e' || nextChar == 'E') {
+                    throw new JsonParseException("Non-integer number in canonical JSON at index " + start);
                 }
             }
             String literal = s.substring(start, index);
-            if (integral) {
-                try {
-                    return Long.parseLong(literal);
-                } catch (NumberFormatException overflow) {
-                    return new BigInteger(literal);
-                }
+            try {
+                return Long.parseLong(literal);
+            } catch (NumberFormatException overflow) {
+                throw new JsonParseException("Integer out of signed 64-bit range at index " + start);
             }
-            return Double.parseDouble(literal);
         }
 
         /** Consume zero or more ASCII digits; return whether at least one was consumed. */

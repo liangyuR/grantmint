@@ -28,7 +28,9 @@ import java.util.Map;
  *   <li>Ed25519 signature over the ASCII bytes of the <em>received</em>
  *       {@code headerSegment + "." + payloadSegment} (never re-serialized);
  *   <li>only then parse the payload: {@code ver == 1}; {@code exp} is a required claim whose value
- *       may be null (perpetual) — absence is malformed; {@code nbf} is genuinely optional;
+ *       may be null (perpetual) — absence is malformed; {@code lid}/{@code kid}/{@code prd}/
+ *       {@code pol}/{@code hld} (with string {@code n}/{@code e}) and {@code iat} are required per
+ *       the spec's claim table; {@code nbf} is genuinely optional;
  *       {@code now >= exp} is expired (exp exclusive), {@code now < nbf} not yet valid.
  * </ol>
  */
@@ -136,7 +138,18 @@ public final class OfflineTokenVerifier {
         }
         Long exp = optionalEpoch(claims, "exp");
         Long nbf = optionalEpoch(claims, "nbf");
-        Long iat = optionalEpoch(claims, "iat");
+        // The spec's claim table marks lid/kid/prd/pol/hld/iat required (LICENSE_TOKEN_FORMAT.md);
+        // mirror the reference verifier exactly: absence or a wrong type is MALFORMED, never a
+        // silently-null field — and, like the reference, every structural check runs before the
+        // temporal ones so both implementations report the same reason for the same bytes.
+        long iat = requiredEpoch(claims, "iat");
+        String kid = requiredString(claims, "kid");
+        String lid = requiredString(claims, "lid");
+        String prd = requiredString(claims, "prd");
+        String pol = requiredString(claims, "pol");
+        Map<String, Object> holder = requiredObject(claims, "hld");
+        String holderName = requiredString(holder, "n");
+        String holderEmail = requiredString(holder, "e");
 
         if (nbf != null && now.getEpochSecond() < nbf) {
             throw new TokenVerificationException(Reason.NOT_YET_VALID, "token not valid before " + nbf);
@@ -145,15 +158,14 @@ public final class OfflineTokenVerifier {
             throw new TokenVerificationException(Reason.EXPIRED, "token expired at " + exp);
         }
 
-        Map<String, Object> holder = optionalObject(claims, "hld");
         return new VerifiedToken(
-                requiredString(claims, "kid"),
-                requiredString(claims, "lid"),
-                requiredString(claims, "prd"),
-                optionalString(claims, "pol"),
-                holder == null ? null : optionalString(holder, "n"),
-                holder == null ? null : optionalString(holder, "e"),
-                iat == null ? null : Instant.ofEpochSecond(iat),
+                kid,
+                lid,
+                prd,
+                pol,
+                holderName,
+                holderEmail,
+                Instant.ofEpochSecond(iat),
                 nbf == null ? null : Instant.ofEpochSecond(nbf),
                 exp == null ? null : Instant.ofEpochSecond(exp),
                 optionalObject(claims, "ent"),
@@ -172,6 +184,13 @@ public final class OfflineTokenVerifier {
         return epoch;
     }
 
+    private static long requiredEpoch(Map<String, Object> claims, String key) {
+        if (!(claims.get(key) instanceof Long epoch)) {
+            throw malformed("missing required integer claim: " + key);
+        }
+        return epoch;
+    }
+
     private static String requiredString(Map<String, Object> claims, String key) {
         if (!(claims.get(key) instanceof String value) || value.isEmpty()) {
             throw malformed("missing required claim: " + key);
@@ -179,8 +198,12 @@ public final class OfflineTokenVerifier {
         return value;
     }
 
-    private static String optionalString(Map<String, Object> claims, String key) {
-        return claims.get(key) instanceof String value ? value : null;
+    private static Map<String, Object> requiredObject(Map<String, Object> claims, String key) {
+        Map<String, Object> value = optionalObject(claims, key);
+        if (value == null) {
+            throw malformed("missing required claim: " + key);
+        }
+        return value;
     }
 
     @SuppressWarnings("unchecked")

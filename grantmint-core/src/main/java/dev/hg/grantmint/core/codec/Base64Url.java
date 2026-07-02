@@ -24,18 +24,25 @@ public final class Base64Url {
     }
 
     /**
-     * Decode padding-free URL-safe Base64.
+     * Decode padding-free URL-safe Base64, accepting only the canonical encoding.
      *
-     * <p>Padding is part of the wire contract: tokens are emitted without {@code =}, and a padded
-     * segment is an alternate encoding that would break byte-for-byte parity with the Swift and Go
-     * verifiers. Such input is rejected ({@link IllegalArgumentException}) rather than silently
-     * accepted, which callers surface as a malformed token.
+     * <p>Padding and canonicality are part of the wire contract: tokens are emitted without {@code =},
+     * and any alternate encoding of the same bytes — a padded segment, or a final character with
+     * non-zero unused trailing bits (the JDK decoder silently ignores them, so {@code "AC"} and
+     * {@code "AA"} decode identically) — would break byte-for-byte parity with the starter, Swift, and
+     * Go verifiers. Every alternate encoding is rejected ({@link IllegalArgumentException}) rather than
+     * silently accepted, which callers surface as a malformed token. The check is re-encode-and-compare:
+     * exactly one text form decodes to any byte string.
      */
     public static byte[] decode(String text) {
         Objects.requireNonNull(text, "text");
         if (text.indexOf('=') >= 0) {
             throw new IllegalArgumentException("Base64URL segment must not contain '=' padding");
         }
-        return DECODER.decode(text);
+        byte[] decoded = DECODER.decode(text);
+        if (!ENCODER.encodeToString(decoded).equals(text)) {
+            throw new IllegalArgumentException("Base64URL segment is not canonical (non-zero trailing bits)");
+        }
+        return decoded;
     }
 }

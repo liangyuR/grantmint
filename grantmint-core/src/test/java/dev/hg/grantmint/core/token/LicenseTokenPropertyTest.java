@@ -19,6 +19,7 @@ import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.IntRange;
 
 /**
  * The M1 correctness invariants for issuance + offline verification, expressed as jqwik properties.
@@ -76,10 +77,11 @@ class LicenseTokenPropertyTest {
      * verification. Every char in segments A/B is part of the ASCII signing input, so changing any
      * one breaks the Ed25519 signature.
      *
-     * <p>Note: the signature segment itself is deliberately excluded here — a 64-byte signature is
-     * 86 base64url chars whose final char has 4 unused bits, so flipping those redundant bits yields
-     * an alternate encoding of the <em>same</em> signature that (correctly) still verifies. Meaningful
-     * signature corruption is covered by {@link #corruptingSignatureSignificantBitsFails}.
+     * <p>Note: the signature segment itself is excluded here because its failure mode is different,
+     * not because it is tolerated — corrupting significant bits is covered by
+     * {@link #corruptingSignatureSignificantBitsFails}, and flipping the final char's 4 redundant
+     * trailing bits (an alternate encoding of the <em>same</em> signature, which pre-M6-audit code
+     * accepted) is rejected as non-canonical by {@link #nonCanonicalSignatureSpellingIsMalformed}.
      */
     @Property(tries = 2000)
     void tamperingSignedContentFails(@ForAll("validPayloads") Generated generated, @ForAll int rawIndex) {
@@ -116,6 +118,38 @@ class LicenseTokenPropertyTest {
 
         VerificationResult result = LicenseVerifier.verifyAt(tampered, keyPair.getPublic(), generated.clock());
         assertThat(result.isValid()).isFalse();
+    }
+
+    /**
+     * M6–M10 audit remediation: canonicality of the signature segment. A 64-byte signature is 86
+     * base64url chars whose final char carries 4 unused trailing bits, so 15 alternate spellings
+     * decode to the SAME signature bytes — and the segment is not covered by the signing input, so
+     * the signature check alone cannot tell them apart. Accepting any of them would let one license
+     * circulate as 16 distinct token strings and split the verdict against the starter/Swift/Go
+     * verifiers (LICENSE_TOKEN_FORMAT.md pins one text form per byte string). Every non-canonical
+     * spelling must be MALFORMED for every issuable token; the canonical spelling must stay valid.
+     */
+    @Property(tries = 1000)
+    void nonCanonicalSignatureSpellingIsMalformed(
+            @ForAll("validPayloads") Generated generated, @ForAll @IntRange(min = 1, max = 15) int trailingBits) {
+        KeyPair keyPair = Ed25519Keys.generate(RNG);
+        LicenseTokenIssuer issuer = new LicenseTokenIssuer(new Ed25519Signer(keyPair.getPrivate(), "K1"));
+        String token = issuer.sign(generated.payload());
+        assertThat(LicenseVerifier.verifyAt(token, keyPair.getPublic(), generated.clock())
+                        .isValid())
+                .isTrue();
+
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        int lastValue = alphabet.indexOf(token.charAt(token.length() - 1));
+        assertThat(lastValue % 16)
+                .as("canonical final signature char has zero trailing bits")
+                .isZero();
+        String nonCanonical = token.substring(0, token.length() - 1) + alphabet.charAt(lastValue | trailingBits);
+
+        VerificationResult result = LicenseVerifier.verifyAt(nonCanonical, keyPair.getPublic(), generated.clock());
+        assertThat(result.reason())
+                .as("alternate signature spelling (trailing bits %d) must be malformed", trailingBits)
+                .isEqualTo(FailureReason.MALFORMED);
     }
 
     /** M1: a token fails at/after exp; a not-yet-valid token fails before nbf; valid in between. */

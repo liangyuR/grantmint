@@ -102,22 +102,45 @@ class CanonicalJsonTest {
     }
 
     @Test
-    void parsesWellFormedNumbers() {
+    void parsesWellFormedIntegers() {
         assertThat(CanonicalJson.parse("0")).isEqualTo(0L);
         assertThat(CanonicalJson.parse("-0")).isEqualTo(0L);
         assertThat(CanonicalJson.parse("-42")).isEqualTo(-42L);
         assertThat(CanonicalJson.parse("10")).isEqualTo(10L);
         assertThat(CanonicalJson.parse("1782666000")).isEqualTo(1782666000L);
-        // Beyond long range promotes to BigInteger, exactly as before the lexer was tightened.
-        assertThat(CanonicalJson.parse("123456789012345678901234567890"))
-                .isEqualTo(new java.math.BigInteger("123456789012345678901234567890"));
-        // Well-formed fractions/exponents still parse to Double (then rejected downstream as
-        // non-integral claims — the token model accepts only integers, but the lexer stays general).
-        assertThat(CanonicalJson.parse("0.5")).isEqualTo(0.5d);
-        assertThat(CanonicalJson.parse("-0.5")).isEqualTo(-0.5d);
-        assertThat(CanonicalJson.parse("1e3")).isEqualTo(1000.0d);
-        assertThat(CanonicalJson.parse("1E+2")).isEqualTo(100.0d);
-        assertThat(CanonicalJson.parse("2.5e-1")).isEqualTo(0.25d);
+        assertThat(CanonicalJson.parse(Long.toString(Long.MAX_VALUE))).isEqualTo(Long.MAX_VALUE);
+        assertThat(CanonicalJson.parse(Long.toString(Long.MIN_VALUE))).isEqualTo(Long.MIN_VALUE);
+    }
+
+    @Test
+    void parseRejectsNonIntegerAndOversizedNumbers() {
+        // Canonical JSON is integer-only within signed 64-bit: the writer never emits a fraction, an
+        // exponent, or a wider integer, so the reader treats all of them as malformed — keeping this
+        // lexer exactly as strict as the starter's StrictJson (cross-verifier parity).
+        for (String rejected : List.of(
+                "0.5",
+                "-0.5",
+                "1e3",
+                "1E+2",
+                "2.5e-1",
+                "9223372036854775808", // Long.MAX_VALUE + 1
+                "-9223372036854775809", // Long.MIN_VALUE - 1
+                "123456789012345678901234567890")) {
+            assertThatThrownBy(() -> CanonicalJson.parse(rejected))
+                    .as("parsing '%s'", rejected)
+                    .isInstanceOf(JsonParseException.class);
+        }
+    }
+
+    @Test
+    void writesLongRangeBigIntegerButRejectsWider() {
+        // BigInteger values are honored only while they fit the cross-language int64 contract; a
+        // wider integer would mint a token every peer verifier must refuse, so writing one fails.
+        assertThat(CanonicalJson.serializeToString(Map.of("x", java.math.BigInteger.valueOf(Long.MAX_VALUE))))
+                .isEqualTo("{\"x\":9223372036854775807}");
+        assertThatThrownBy(() -> CanonicalJson.serialize(Map.of("x", new java.math.BigInteger("9223372036854775808"))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("64-bit");
     }
 
     @Test
