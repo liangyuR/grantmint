@@ -43,5 +43,20 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          TEST-ONLY dependency on the AGPL core: the parity suite issues tokens with the reference
+          implementation and asserts this module's fresh Apache-2.0 verifier reads them identically.
+          Test scope ships nothing - the distributed starter artifact stays AGPL-free.
+        -->
+        <dependency>
+            <groupId>dev.hg.grantmint</groupId>
+            <artifactId>grantmint-core</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+        </dependency>
     </dependencies>
 </project>
