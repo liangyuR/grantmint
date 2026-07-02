@@ -246,6 +246,46 @@ public class ActivationService {
                 now.plusSeconds(heartbeatInterval));
     }
 
+    /**
+     * Admin-only: free a seat regardless of which device holds it (e.g. "customer lost a laptop").
+     * Unlike {@link #deactivate}, this is addressed by activation id rather than fingerprint and
+     * carries no fingerprint ownership check — the caller is an operator, not the device. Takes the
+     * same license row lock as {@link #activate} so it serializes with a concurrent activation racing
+     * for the freed seat.
+     *
+     * @throws NoSuchElementException if no such license is visible (404), or {@code activationId} does
+     *     not exist, does not belong to this license, or does not currently hold an active seat (404)
+     */
+    @Transactional
+    public void forceDeactivate(UUID activationId, String keyId, String actor) {
+        License license = lockedLicense(keyId, null);
+        MachineActivation activation = activations
+                .findById(activationId)
+                .filter(a -> license.getId().equals(a.getLicense().getId()))
+                .filter(a -> MACHINE_ACTIVE.equals(a.getStatus()))
+                .orElseThrow(() -> new NoSuchElementException("Active activation not found: " + activationId));
+
+        OffsetDateTime now = now();
+        activation.setStatus(MACHINE_DEACTIVATED);
+        activation.setDeactivatedAt(now);
+
+        audit.record(
+                actor,
+                AuditActorType.ADMIN,
+                "activation.deactivated",
+                "license",
+                license.getId().toString(),
+                Map.of(
+                        "key_id",
+                        license.getKeyId(),
+                        "fingerprint",
+                        activation.getFingerprint(),
+                        "activation_id",
+                        activationId.toString()),
+                null);
+        evictAfterCommit(license.getKeyId());
+    }
+
     /** Lock the license row and enforce cross-product isolation (a foreign key id 404s, never leaks). */
     private License lockedLicense(String keyId, UUID requesterProductId) {
         License license = licenses.findByKeyIdForUpdate(keyId)

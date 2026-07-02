@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,8 +17,11 @@ import org.springframework.data.repository.query.Param;
 /**
  * Licenses: the validation hot-path lookup is by the short online {@code key_id}. Also serves the
  * customer (holder-email) and billing ({@code external_ref}) lookups and the expiry-sweep job.
+ *
+ * <p>{@link JpaSpecificationExecutor} backs the admin list endpoint's optional-AND filters (status,
+ * holder email, product, policy, key id) without a combinatorial explosion of derived-query methods.
  */
-public interface LicenseRepository extends JpaRepository<License, UUID> {
+public interface LicenseRepository extends JpaRepository<License, UUID>, JpaSpecificationExecutor<License> {
 
     /** Primary online lookup for validate/activate/heartbeat/revoke. */
     Optional<License> findByKeyId(String keyId);
