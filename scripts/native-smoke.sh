@@ -16,21 +16,18 @@
 #       docker run -d --name gm-native-smoke-pg -e POSTGRES_DB=grantmint \
 #         -e POSTGRES_USER=grantmint -e POSTGRES_PASSWORD=grantmint \
 #         -p 5433:5432 postgres:16-alpine
-#   - psql access to that DB (default: docker exec into the container above);
-#     needed only to seed the signing key — there is no admin API for that yet
-#     (GRANTMINT-118), so we seed the row the way the integration tests do.
 #
-# Overridable env: PG_PORT (5433), PG_CONTAINER (gm-native-smoke-pg), PSQL,
-# SERVER_BIN, ADMIN_USER/ADMIN_PASS, BASE (http://127.0.0.1:8080),
-# MGMT (http://127.0.0.1:9090).
+# Everything, including signing-key registration, runs over the HTTP API
+# (GRANTMINT-118), so no direct DB access is needed.
+#
+# Overridable env: PG_PORT (5433), SERVER_BIN, ADMIN_USER/ADMIN_PASS,
+# BASE (http://127.0.0.1:8080), MGMT (http://127.0.0.1:9090).
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER_BIN="${SERVER_BIN:-$ROOT/grantmint-server/target/grantmint-server}"
 PG_PORT="${PG_PORT:-5433}"
-PG_CONTAINER="${PG_CONTAINER:-gm-native-smoke-pg}"
-PSQL="${PSQL:-docker exec -i $PG_CONTAINER psql -qAt -v ON_ERROR_STOP=1 -U grantmint -d grantmint}"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASS="${ADMIN_PASS:-native-smoke-admin-pass}"
 BASE="${BASE:-http://127.0.0.1:8080}"
@@ -82,12 +79,22 @@ req() {
 
 command -v python3 >/dev/null || fail "python3 is required"
 [ -x "$SERVER_BIN" ] || fail "native binary not found at $SERVER_BIN"
-$PSQL -c 'SELECT 1' >/dev/null || fail "cannot reach Postgres via: $PSQL"
 
 # --- 0. CLI classpath (keygen + offline verify come from grantmint-cli) -------
+# Regenerate when the jar or ANY classpath entry is gone — intermediate Maven
+# runs routinely delete sibling-module jars that an old cp.txt still points at.
 step "Preparing the grantmint-cli classpath"
-CLI_JAR="$(ls "$ROOT"/grantmint-cli/target/grantmint-cli-*.jar 2>/dev/null | head -1 || true)"
-if [ -z "$CLI_JAR" ] || [ ! -f "$ROOT/grantmint-cli/target/cp.txt" ]; then
+cli_classpath_stale() {
+    CLI_JAR="$(ls "$ROOT"/grantmint-cli/target/grantmint-cli-*.jar 2>/dev/null | head -1 || true)"
+    [ -n "$CLI_JAR" ] || return 0
+    [ -f "$ROOT/grantmint-cli/target/cp.txt" ] || return 0
+    local IFS=':'
+    for entry in $(cat "$ROOT/grantmint-cli/target/cp.txt"); do
+        [ -e "$entry" ] || return 0
+    done
+    return 1
+}
+if cli_classpath_stale; then
     (cd "$ROOT" && ./mvnw -q -B -ntp -DskipTests -pl grantmint-cli -am package \
         dependency:build-classpath -Dmdep.outputFile="$ROOT/grantmint-cli/target/cp.txt") \
         || fail "could not build grantmint-cli"
@@ -130,13 +137,19 @@ PRODUCT_ID="$(req 201 POST "$BASE/admin/products" \
     -d '{"slug":"native-smoke","name":"Native Smoke","description":"GRANTMINT-116"}' \
     | json_get id)"
 
-# --- 5. Seed the signing key (no admin API exists yet — GRANTMINT-118) ---------
-step "Seed signing key row + activate it on the product"
-$PSQL >/dev/null <<SQL
-INSERT INTO signing_keys (key_id, product_id, public_key, private_key_ref)
-VALUES ('native-smoke-ed25519', '$PRODUCT_ID', decode('$PUB_B64', 'base64'), '$KEY_REF');
-UPDATE products SET active_signing_key_id = 'native-smoke-ed25519' WHERE id = '$PRODUCT_ID';
-SQL
+# --- 5. Register the signing key over the admin API (GRANTMINT-118) ------------
+# The server proves the public key matches the seed behind the ref before
+# persisting — this exercises seed resolution + the Ed25519 probe under native.
+step "Register signing key via POST /admin/products/{id}/signing-keys"
+req 201 POST "$BASE/admin/products/$PRODUCT_ID/signing-keys" \
+    -H "Authorization: Bearer $SESS" -H 'Content-Type: application/json' \
+    -d "{\"keyId\":\"native-smoke-ed25519\",\"privateKeyRef\":\"$KEY_REF\",\"publicKey\":\"$PUB_B64\",\"makeActive\":true}" >/dev/null
+
+step "Signing-key registration rejects a mismatched public key (400)"
+WRONG_PUB="$($CLI keygen --out "$WORK/wrong.seed" | sed -n 's/^Public key (base64): //p')"
+req 400 POST "$BASE/admin/products/$PRODUCT_ID/signing-keys" \
+    -H "Authorization: Bearer $SESS" -H 'Content-Type: application/json' \
+    -d "{\"keyId\":\"native-smoke-mismatch\",\"privateKeyRef\":\"$KEY_REF\",\"publicKey\":\"$WRONG_PUB\",\"makeActive\":false}" >/dev/null
 
 # --- 6. Policy (2 seats, node-locked) ------------------------------------------
 step "Create 2-seat policy"

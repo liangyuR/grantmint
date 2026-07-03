@@ -9,6 +9,7 @@ import dev.hg.grantmint.server.repo.ProductRepository;
 import dev.hg.grantmint.server.repo.SigningKeyRepository;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
@@ -88,6 +89,19 @@ public class SigningKeyService {
             products.save(product);
         }
         return saved;
+    }
+
+    /**
+     * List every signing key registered for a product, newest first.
+     *
+     * @throws NoSuchElementException if the product does not exist
+     */
+    @Transactional(readOnly = true)
+    public List<SigningKey> listForProduct(UUID productId) {
+        if (!products.existsById(productId)) {
+            throw new NoSuchElementException("Product not found: " + productId);
+        }
+        return signingKeys.findByProduct_IdOrderByCreatedAtDesc(productId);
     }
 
     /** Build a signer for a product's <em>active</em> signing key. */

@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface SigningKeyRepository extends JpaRepository<SigningKey, String> {
 
     List<SigningKey> findByProduct_IdAndStatus(java.util.UUID productId, String status);
+
+    List<SigningKey> findByProduct_IdOrderByCreatedAtDesc(java.util.UUID productId);
 }
