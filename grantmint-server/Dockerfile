@@ -64,8 +64,11 @@ RUN useradd --system --no-create-home --uid 10001 --shell /usr/sbin/nologin gran
     && mkdir -p /app \
     && chown grantmint:grantmint /app
 
+# Wildcard, not a pinned version: the release flow bumps the POM version before
+# tagging, so the JAR name changes per release. Boot's repackage leaves only one
+# *.jar here (the thin original is *.jar.original, which the glob doesn't match).
 COPY --from=build --chown=grantmint:grantmint \
-    /build/grantmint-server/target/grantmint-server-0.1.0-SNAPSHOT.jar /app/app.jar
+    /build/grantmint-server/target/grantmint-server-*.jar /app/app.jar
 
 USER grantmint
 WORKDIR /app
