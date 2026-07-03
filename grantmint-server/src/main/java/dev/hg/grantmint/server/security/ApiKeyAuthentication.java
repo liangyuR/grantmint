@@ -34,6 +34,15 @@ public final class ApiKeyAuthentication extends AbstractAuthenticationToken {
         return key.scope();
     }
 
+    /**
+     * The key's display prefix (e.g. {@code gm_live_ab12}) — a safe, non-secret identifier for
+     * structured-log actor attribution ({@code issuance-key:<prefix>} in
+     * docs/operations/MONITORING_LOGGING.md). The raw key is never available here.
+     */
+    public String keyPrefix() {
+        return key.keyPrefix();
+    }
+
     @Override
     public Object getCredentials() {
         return ""; // never carry the raw key forward

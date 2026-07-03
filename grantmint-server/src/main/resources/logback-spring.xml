@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Structured (JSON) logging to stdout — twelve-factor: the platform handles shipping.
+  See docs/operations/MONITORING_LOGGING.md ("Structured logging", "MDC fields", "Log levels").
+
+  Native-image note: this is a *declarative* logback-spring.xml, not programmatic Logback
+  configuration — required so GraalVM AOT can evaluate it at build time
+  (docs/operations/MONITORING_LOGGING.md, "Native-image note").
+-->
+<configuration>
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <!-- The five MDC keys populated by dev.hg.grantmint.server.logging.MdcFilter and the
+                 issuance/validation service layer. Never includeMdcKeyName a key that could carry
+                 a signed token, private key material, or holder PII. -->
+            <includeMdcKeyName>requestId</includeMdcKeyName>
+            <includeMdcKeyName>keyId</includeMdcKeyName>
+            <includeMdcKeyName>licenseId</includeMdcKeyName>
+            <includeMdcKeyName>productId</includeMdcKeyName>
+            <includeMdcKeyName>actor</includeMdcKeyName>
+            <customFields>{"service":"grantmint-server"}</customFields>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="JSON"/>
+    </root>
+
+    <!-- Keep crypto core quiet by default; raise to DEBUG only when diagnosing. -->
+    <logger name="dev.hg.grantmint.core.crypto" level="INFO"/>
+</configuration>

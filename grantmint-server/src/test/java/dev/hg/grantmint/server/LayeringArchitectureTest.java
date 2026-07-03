@@ -50,7 +50,11 @@ class LayeringArchitectureTest {
                         "dev.hg.grantmint.server.security..",
                         // Metrics instrumentation is a service-layer concern: the issuance/validation
                         // services record into it, and its DB-backed gauges read repositories.
-                        "dev.hg.grantmint.server.metrics..")
+                        "dev.hg.grantmint.server.metrics..",
+                        // Structured-logging support (MdcFilter, actor resolution) is a service-layer
+                        // concern like security/metrics — omitting it would exempt every dependency
+                        // to/from it (consideringOnlyDependenciesInLayers), an unchecked blind spot.
+                        "dev.hg.grantmint.server.logging..")
                 .layer("Domain")
                 .definedBy("dev.hg.grantmint.server.domain..", "dev.hg.grantmint.server.repo..")
                 .whereLayer("Web")

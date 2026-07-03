@@ -46,6 +46,15 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Structured (JSON) logging to stdout for the issuance/validation paths. Not managed by
+             the Spring Boot BOM — version pinned explicitly. See
+             docs/operations/MONITORING_LOGGING.md ("Structured logging"). -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
+        </dependency>
+
         <!-- OpenAPI 3 spec + Swagger UI, generated from the controllers and DTOs. -->
         <dependency>
             <groupId>org.springdoc</groupId>

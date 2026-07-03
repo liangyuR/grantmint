@@ -9,6 +9,9 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 /**
@@ -31,6 +34,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class ValidationService {
+
+    private static final Logger log = LoggerFactory.getLogger(ValidationService.class);
 
     /** A revoked license — terminal; never valid again. */
     public static final String LICENSE_REVOKED = "license_revoked";
@@ -70,43 +75,65 @@ public class ValidationService {
      */
     public ValidationView validate(String keyId, UUID requesterProductId, String fingerprint) {
         Timer.Sample sample = metrics.start();
-        boolean[] loaded = {false};
-        ValidationSnapshot snapshot;
+        // keyId/productId are MDC-scoped to this call (docs/operations/MONITORING_LOGGING.md,
+        // "MDC fields"); requestId/actor are request-scoped and owned by
+        // dev.hg.grantmint.server.logging.MdcFilter. NEVER log the signed token, holder name, or
+        // holder email here — the snapshot doesn't carry them, and it must stay that way.
+        MDC.put("keyId", keyId);
         try {
-            snapshot = cache.get(keyId, id -> {
-                loaded[0] = true;
-                return loader.load(id);
-            });
-        } catch (NoSuchElementException unknownKeyId) {
-            // No snapshot, so no product to attribute the miss to — a fixed low-cardinality tag.
-            metrics.recordValidation(sample, "unknown", false, RESULT_NOT_FOUND);
-            throw unknownKeyId;
-        }
-        boolean cacheHit = !loaded[0];
+            boolean[] loaded = {false};
+            ValidationSnapshot snapshot;
+            try {
+                snapshot = cache.get(keyId, id -> {
+                    loaded[0] = true;
+                    return loader.load(id);
+                });
+            } catch (NoSuchElementException unknownKeyId) {
+                // No snapshot, so no product to attribute the miss to — a fixed low-cardinality tag.
+                metrics.recordValidation(sample, "unknown", false, RESULT_NOT_FOUND);
+                log.info("online validation result={}", RESULT_NOT_FOUND);
+                throw unknownKeyId;
+            }
+            boolean cacheHit = !loaded[0];
+            MDC.put("productId", snapshot.productSlug());
 
-        // Cross-product isolation: a product's validation key may only see its own licenses.
-        if (requesterProductId != null && !requesterProductId.equals(snapshot.productId())) {
-            metrics.recordValidation(sample, snapshot.productSlug(), cacheHit, RESULT_NOT_FOUND);
-            throw new NoSuchElementException("License not found: " + keyId);
-        }
+            // Cross-product isolation: a product's validation key may only see its own licenses.
+            if (requesterProductId != null && !requesterProductId.equals(snapshot.productId())) {
+                metrics.recordValidation(sample, snapshot.productSlug(), cacheHit, RESULT_NOT_FOUND);
+                log.info("online validation result={}", RESULT_NOT_FOUND);
+                throw new NoSuchElementException("License not found: " + keyId);
+            }
 
-        long now = clock.instant().getEpochSecond();
-        Decision decision = decide(snapshot, now);
-        if (!decision.valid()) {
-            metrics.recordValidation(sample, snapshot.productSlug(), cacheHit, metricResult(decision.code()));
-            throw new LicenseNotValidException(decision.code(), messageFor(decision.code(), keyId, snapshot));
-        }
-        metrics.recordValidation(sample, snapshot.productSlug(), cacheHit, "valid");
+            long now = clock.instant().getEpochSecond();
+            Decision decision = decide(snapshot, now);
+            if (!decision.valid()) {
+                String result = metricResult(decision.code());
+                metrics.recordValidation(sample, snapshot.productSlug(), cacheHit, result);
+                // signature_mismatch is a tampered token or key-version skew — expected-but-notable
+                // (MONITORING_LOGGING.md, "Log levels"); every other unhealthy outcome is routine.
+                if (LICENSE_INVALID.equals(decision.code())) {
+                    log.warn("online validation result={}", result);
+                } else {
+                    log.info("online validation result={}", result);
+                }
+                throw new LicenseNotValidException(decision.code(), messageFor(decision.code(), keyId, snapshot));
+            }
+            metrics.recordValidation(sample, snapshot.productSlug(), cacheHit, "valid");
+            log.info("online validation result=valid servedFromCache={}", cacheHit);
 
-        OffsetDateTime expiresAt = snapshot.expEpochSecond() == null
-                ? null
-                : OffsetDateTime.ofInstant(Instant.ofEpochSecond(snapshot.expEpochSecond()), ZoneOffset.UTC);
-        return new ValidationView(
-                LicenseStatus.ACTIVE.wire(),
-                keyId,
-                expiresAt,
-                snapshot.entitlements(),
-                OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
+            OffsetDateTime expiresAt = snapshot.expEpochSecond() == null
+                    ? null
+                    : OffsetDateTime.ofInstant(Instant.ofEpochSecond(snapshot.expEpochSecond()), ZoneOffset.UTC);
+            return new ValidationView(
+                    LicenseStatus.ACTIVE.wire(),
+                    keyId,
+                    expiresAt,
+                    snapshot.entitlements(),
+                    OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
+        } finally {
+            MDC.remove("keyId");
+            MDC.remove("productId");
+        }
     }
 
     /**

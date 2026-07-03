@@ -25,6 +25,9 @@ import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +50,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class IssuanceService {
+
+    private static final Logger log = LoggerFactory.getLogger(IssuanceService.class);
 
     /** Bound on key-id allocation retries; collisions are astronomically unlikely (~54 bits). */
     private static final int MAX_KEY_ID_ATTEMPTS = 10;
@@ -169,6 +174,23 @@ public class IssuanceService {
                 command.ipAddress());
 
         metrics.recordIssuance(sample, product.getSlug(), policy.getCode(), sourceOf(actorType));
+
+        // MDC-scoped, not request-scoped: keyId/licenseId/productId are known here in the service
+        // layer (docs/operations/MONITORING_LOGGING.md, "MDC fields"), so they're set around this
+        // single log call and removed immediately after — requestId/actor stay untouched, they're
+        // owned by dev.hg.grantmint.server.logging.MdcFilter for the life of the HTTP request.
+        // NEVER log license.getSignedToken(), the holder name, or the holder email — see
+        // MONITORING_LOGGING.md, "What NOT to log".
+        MDC.put("keyId", license.getKeyId());
+        MDC.put("licenseId", license.getId().toString());
+        MDC.put("productId", product.getSlug());
+        try {
+            log.info("license issued policy={} actorType={}", policy.getCode(), actorType.wire());
+        } finally {
+            MDC.remove("keyId");
+            MDC.remove("licenseId");
+            MDC.remove("productId");
+        }
 
         return new IssuedLicense(license.getKeyId(), license.getSignedToken(), license.getStatus(), expiresAt);
     }

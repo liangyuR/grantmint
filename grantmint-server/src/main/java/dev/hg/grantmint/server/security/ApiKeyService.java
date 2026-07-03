@@ -152,7 +152,7 @@ public class ApiKeyService {
         }
         key.setLastUsedAt(now);
         UUID productId = key.getProduct() == null ? null : key.getProduct().getId();
-        return Optional.of(new ResolvedKey(key.getId(), productId, expectedScope));
+        return Optional.of(new ResolvedKey(key.getId(), productId, expectedScope, key.getKeyPrefix()));
     }
 
     /**
@@ -161,8 +161,11 @@ public class ApiKeyService {
      * @param apiKeyId the row id, for audit/attribution
      * @param productId the product the key is scoped to (null only for global admin keys)
      * @param scope the authenticated scheme
+     * @param keyPrefix the key's display prefix (e.g. {@code gm_live_ab12}) — safe to log; the raw
+     *     secret is never carried past authentication (see {@link ApiKeyAuthentication}, used for the
+     *     structured-logging {@code actor} MDC field in docs/operations/MONITORING_LOGGING.md)
      */
-    public record ResolvedKey(UUID apiKeyId, UUID productId, ApiKeyScope scope) {}
+    public record ResolvedKey(UUID apiKeyId, UUID productId, ApiKeyScope scope, String keyPrefix) {}
 
     /**
      * A freshly minted key: the persisted row plus the one-time {@code plaintext}. The plaintext is
