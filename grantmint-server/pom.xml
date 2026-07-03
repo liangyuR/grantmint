@@ -143,6 +143,15 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!-- GraalVM native-image build (M13): inert in a normal build; the Spring Boot parent's
+                 `native` profile binds process-aot + this plugin's compile-no-fork, so
+                 `./mvnw -Pnative -pl grantmint-server -am native:compile` (with a GraalVM JDK)
+                 produces target/grantmint-server. Version + reachability-metadata repository are
+                 managed by the parent. See docs/deployment/CI_CD.md. -->
+            <plugin>
+                <groupId>org.graalvm.buildtools</groupId>
+                <artifactId>native-maven-plugin</artifactId>
+            </plugin>
         </plugins>
     </build>
 </project>

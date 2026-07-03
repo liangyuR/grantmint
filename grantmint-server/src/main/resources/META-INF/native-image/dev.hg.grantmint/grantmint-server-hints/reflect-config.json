@@ -1,0 +1,121 @@
+[
+  {
+    "name": "java.util.UUID[]",
+    "unsafeAllocated": true
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BLCHeader$DrainStatusRef",
+    "fields": [
+      {
+        "name": "drainStatus"
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BaseMpscLinkedArrayQueueColdProducerFields",
+    "fields": [
+      {
+        "name": "producerLimit"
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BaseMpscLinkedArrayQueueConsumerFields",
+    "fields": [
+      {
+        "name": "consumerIndex"
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BaseMpscLinkedArrayQueueProducerFields",
+    "fields": [
+      {
+        "name": "producerIndex"
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BoundedLocalCache",
+    "fields": [
+      {
+        "name": "refreshes"
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.Cache"
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.Caffeine"
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.PS",
+    "fields": [
+      {
+        "name": "key"
+      },
+      {
+        "name": "value"
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.PSA",
+    "fields": [
+      {
+        "name": "accessTime"
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.PSAMS",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": []
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.PSW",
+    "fields": [
+      {
+        "name": "writeTime"
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.PSWMS",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": []
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSMSA",
+    "fields": [
+      {
+        "name": "FACTORY"
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSMSW",
+    "fields": [
+      {
+        "name": "FACTORY"
+      }
+    ]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.StripedBuffer",
+    "fields": [
+      {
+        "name": "tableBusy"
+      }
+    ]
+  }
+]
