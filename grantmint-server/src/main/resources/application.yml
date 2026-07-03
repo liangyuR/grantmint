@@ -30,10 +30,28 @@ server:
   port: 8080
 
 management:
+  server:
+    # Actuator rides its own management port, never the public API port: requests outside the three
+    # auth chains bypass security entirely, and /actuator/prometheus leaks capacity, product slugs,
+    # and license counts. Bind/firewall this port to the private metrics network
+    # (docs/operations/MONITORING_LOGGING.md).
+    port: 9090
   endpoints:
     web:
       exposure:
-        include: health, info
+        include: health, info, prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true # /actuator/health/liveness & /readiness for container orchestration
+  metrics:
+    distribution:
+      # Histogram buckets so histogram_quantile() p95/p99 PromQL works on the two SLI timers.
+      percentiles-histogram:
+        grantmint.validation.latency: true
+        grantmint.issuance.latency: true
+      slo:
+        grantmint.validation.latency: 5ms,10ms,25ms,50ms,100ms,250ms
 
 grantmint:
   # OpenAPI doc (/v3/api-docs) + Swagger UI (/swagger-ui) access policy. These sit outside the three

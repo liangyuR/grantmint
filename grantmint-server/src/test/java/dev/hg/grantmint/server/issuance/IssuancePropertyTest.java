@@ -74,8 +74,14 @@ class IssuancePropertyTest {
                 return signer;
             }
         };
-        IssuanceService service =
-                new IssuanceService(policies, licenses, signingKeys, audit, java.time.Clock.fixed(NOW, ZoneOffset.UTC));
+        IssuanceService service = new IssuanceService(
+                policies,
+                licenses,
+                signingKeys,
+                audit,
+                java.time.Clock.fixed(NOW, ZoneOffset.UTC),
+                new dev.hg.grantmint.server.metrics.GrantmintMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
 
         Integer durationDays = durationDaysOrPerpetual == 0 ? null : durationDaysOrPerpetual;
         Map<String, Object> entitlements = new LinkedHashMap<>();

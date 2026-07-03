@@ -25,6 +25,10 @@ public interface MachineActivationRepository extends JpaRepository<MachineActiva
     @Query("select count(a) from MachineActivation a" + " where a.license.keyId = :keyId and a.status = 'active'")
     long countActiveByKeyId(@Param("keyId") String keyId);
 
+    /** Total occupied seats — backs the {@code grantmint.seats.used} gauge, sampled on scrape. */
+    @Query("select count(a) from MachineActivation a where a.status = 'active'")
+    long countActive();
+
     List<MachineActivation> findByLicense_Id(UUID licenseId);
 
     /**

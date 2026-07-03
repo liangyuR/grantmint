@@ -33,6 +33,19 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!-- Observability: Micrometer via Actuator + the Prometheus scrape registry
+             (/actuator/prometheus on the separate management port). See
+             docs/operations/MONITORING_LOGGING.md. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- OpenAPI 3 spec + Swagger UI, generated from the controllers and DTOs. -->
         <dependency>
             <groupId>org.springdoc</groupId>

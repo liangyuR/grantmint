@@ -60,6 +60,7 @@ public class ValidationSnapshotLoader {
                 license.getExpiresAt() == null ? null : license.getExpiresAt().toEpochSecond();
         return new ValidationSnapshot(
                 license.getProduct().getId(),
+                license.getProduct().getSlug(),
                 license.getStatus(),
                 token.signatureValid(),
                 token.nbfEpochSecond(),

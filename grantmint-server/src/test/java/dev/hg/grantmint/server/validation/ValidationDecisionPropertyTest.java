@@ -105,6 +105,7 @@ class ValidationDecisionPropertyTest {
     }
 
     private static ValidationSnapshot snapshot(LicenseStatus status, boolean sig, Long nbf, Long exp, int maxSeats) {
-        return new ValidationSnapshot(UUID.randomUUID(), status, sig, nbf, exp, maxSeats, Map.of("team_sync", true));
+        return new ValidationSnapshot(
+                UUID.randomUUID(), "acme-notes", status, sig, nbf, exp, maxSeats, Map.of("team_sync", true));
     }
 }

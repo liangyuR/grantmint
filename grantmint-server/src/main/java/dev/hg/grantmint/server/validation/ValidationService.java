@@ -1,6 +1,8 @@
 package dev.hg.grantmint.server.validation;
 
 import dev.hg.grantmint.server.domain.LicenseStatus;
+import dev.hg.grantmint.server.metrics.GrantmintMetrics;
+import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -46,11 +48,14 @@ public class ValidationService {
     private final ValidationCache cache;
     private final ValidationSnapshotLoader loader;
     private final Clock clock;
+    private final GrantmintMetrics metrics;
 
-    public ValidationService(ValidationCache cache, ValidationSnapshotLoader loader, Clock clock) {
+    public ValidationService(
+            ValidationCache cache, ValidationSnapshotLoader loader, Clock clock, GrantmintMetrics metrics) {
         this.cache = cache;
         this.loader = loader;
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     /**
@@ -64,18 +69,34 @@ public class ValidationService {
      * @throws LicenseNotValidException if the license is authentic but not currently valid (422)
      */
     public ValidationView validate(String keyId, UUID requesterProductId, String fingerprint) {
-        ValidationSnapshot snapshot = cache.get(keyId, loader::load);
+        Timer.Sample sample = metrics.start();
+        boolean[] loaded = {false};
+        ValidationSnapshot snapshot;
+        try {
+            snapshot = cache.get(keyId, id -> {
+                loaded[0] = true;
+                return loader.load(id);
+            });
+        } catch (NoSuchElementException unknownKeyId) {
+            // No snapshot, so no product to attribute the miss to — a fixed low-cardinality tag.
+            metrics.recordValidation(sample, "unknown", false, RESULT_NOT_FOUND);
+            throw unknownKeyId;
+        }
+        boolean cacheHit = !loaded[0];
 
         // Cross-product isolation: a product's validation key may only see its own licenses.
         if (requesterProductId != null && !requesterProductId.equals(snapshot.productId())) {
+            metrics.recordValidation(sample, snapshot.productSlug(), cacheHit, RESULT_NOT_FOUND);
             throw new NoSuchElementException("License not found: " + keyId);
         }
 
         long now = clock.instant().getEpochSecond();
         Decision decision = decide(snapshot, now);
         if (!decision.valid()) {
+            metrics.recordValidation(sample, snapshot.productSlug(), cacheHit, metricResult(decision.code()));
             throw new LicenseNotValidException(decision.code(), messageFor(decision.code(), keyId, snapshot));
         }
+        metrics.recordValidation(sample, snapshot.productSlug(), cacheHit, "valid");
 
         OffsetDateTime expiresAt = snapshot.expEpochSecond() == null
                 ? null
@@ -123,6 +144,24 @@ public class ValidationService {
             return Decision.invalid(LICENSE_EXPIRED);
         }
         return Decision.ok();
+    }
+
+    /** {@code grantmint.validation.total}'s {@code result} tag for an unknown/foreign key id. */
+    private static final String RESULT_NOT_FOUND = "not_found";
+
+    /**
+     * Map a wire reason code to the metric catalog's {@code result} tag vocabulary
+     * (MONITORING_LOGGING.md): a closed enum, safe as a Prometheus dimension.
+     */
+    private static String metricResult(String code) {
+        return switch (code) {
+            case LICENSE_REVOKED -> "revoked";
+            case LICENSE_SUSPENDED -> "suspended";
+            case LICENSE_EXPIRED -> "expired";
+            case LICENSE_NOT_YET_VALID -> "not_yet_valid";
+            case LICENSE_INACTIVE -> "inactive";
+            default -> "signature_mismatch";
+        };
     }
 
     private static String messageFor(String code, String keyId, ValidationSnapshot snapshot) {

@@ -12,9 +12,11 @@ import dev.hg.grantmint.server.domain.License;
 import dev.hg.grantmint.server.domain.LicenseStatus;
 import dev.hg.grantmint.server.domain.Policy;
 import dev.hg.grantmint.server.domain.Product;
+import dev.hg.grantmint.server.metrics.GrantmintMetrics;
 import dev.hg.grantmint.server.repo.LicenseRepository;
 import dev.hg.grantmint.server.repo.PolicyRepository;
 import dev.hg.grantmint.server.signing.SigningKeyService;
+import io.micrometer.core.instrument.Timer;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
@@ -54,6 +56,7 @@ public class IssuanceService {
     private final SigningKeyService signingKeys;
     private final AuditService audit;
     private final Clock clock;
+    private final GrantmintMetrics metrics;
     private final SecureRandom random = new SecureRandom();
 
     public IssuanceService(
@@ -61,12 +64,14 @@ public class IssuanceService {
             LicenseRepository licenses,
             SigningKeyService signingKeys,
             AuditService audit,
-            Clock clock) {
+            Clock clock,
+            GrantmintMetrics metrics) {
         this.policies = policies;
         this.licenses = licenses;
         this.signingKeys = signingKeys;
         this.audit = audit;
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     /**
@@ -89,6 +94,7 @@ public class IssuanceService {
      */
     @Transactional
     public IssuedLicense issue(IssuanceCommand command, AuditActorType actorType) {
+        Timer.Sample sample = metrics.start();
         if (command.holderName() == null || command.holderName().isBlank()) {
             throw new IllegalArgumentException("holder name is required");
         }
@@ -162,7 +168,21 @@ public class IssuanceService {
                         "product_id", product.getId().toString()),
                 command.ipAddress());
 
+        metrics.recordIssuance(sample, product.getSlug(), policy.getCode(), sourceOf(actorType));
+
         return new IssuedLicense(license.getKeyId(), license.getSignedToken(), license.getStatus(), expiresAt);
+    }
+
+    /**
+     * The metric catalog's {@code source} tag (api | webhook | dashboard) from the audit actor. A
+     * CLI mint authenticates with an issuance key like any backend, so it reports as {@code api}.
+     */
+    private static String sourceOf(AuditActorType actorType) {
+        return switch (actorType) {
+            case WEBHOOK -> "webhook";
+            case ADMIN -> "dashboard";
+            default -> "api";
+        };
     }
 
     /** Expiry: an explicit override wins; else policy duration from now; else perpetual (null). */

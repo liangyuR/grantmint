@@ -14,9 +14,13 @@ import java.util.UUID;
  * the entry's TTL elapses (the revocation-latency ceiling) or it is explicitly evicted. {@code
  * expEpochSecond}/{@code nbfEpochSecond} are re-evaluated against the current clock on every request
  * so a snapshot cached just before expiry still flips to expired at the right instant.
+ *
+ * <p>{@code productSlug} rides along for the metrics {@code product} tag — the low-cardinality
+ * dimension the catalog allows where the key id itself never may be (MONITORING_LOGGING.md).
  */
 public record ValidationSnapshot(
         UUID productId,
+        String productSlug,
         LicenseStatus status,
         boolean signatureValid,
         Long nbfEpochSecond,

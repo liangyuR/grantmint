@@ -36,6 +36,9 @@ public interface LicenseRepository extends JpaRepository<License, UUID>, JpaSpec
 
     boolean existsByKeyId(String keyId);
 
+    /** Backs the {@code grantmint.licenses.active} gauge, sampled on every Prometheus scrape. */
+    long countByStatus(LicenseStatus status);
+
     /**
      * Locking variant for the seat-counting activation transaction: takes a pessimistic write lock
      * on the license row before counting active seats. See docs/features/ACTIVATION_AND_SEATS.md.

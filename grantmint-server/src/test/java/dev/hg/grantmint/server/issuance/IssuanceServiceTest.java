@@ -15,14 +15,17 @@ import dev.hg.grantmint.core.time.Clock;
 import dev.hg.grantmint.core.token.LicenseVerifier;
 import dev.hg.grantmint.core.token.TokenPayload;
 import dev.hg.grantmint.core.token.VerificationResult;
+import dev.hg.grantmint.server.audit.AuditActorType;
 import dev.hg.grantmint.server.audit.AuditService;
 import dev.hg.grantmint.server.domain.License;
 import dev.hg.grantmint.server.domain.LicenseStatus;
 import dev.hg.grantmint.server.domain.Policy;
 import dev.hg.grantmint.server.domain.Product;
+import dev.hg.grantmint.server.metrics.GrantmintMetrics;
 import dev.hg.grantmint.server.repo.LicenseRepository;
 import dev.hg.grantmint.server.repo.PolicyRepository;
 import dev.hg.grantmint.server.signing.SigningKeyService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.security.KeyPair;
 import java.security.PublicKey;
 import java.security.SecureRandom;
@@ -69,6 +72,7 @@ class IssuanceServiceTest {
 
     private PublicKey publicKey;
     private IssuanceService service;
+    private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() {
@@ -77,7 +81,9 @@ class IssuanceServiceTest {
         byte[] seed = Ed25519Keys.encodePrivateKey(pair.getPrivate());
         Ed25519Signer signer = Ed25519Signer.fromRawSeed(seed, SIGNING_KEY_ID);
         java.time.Clock fixed = java.time.Clock.fixed(NOW, ZoneOffset.UTC);
-        service = new IssuanceService(policies, licenses, signingKeys, audit, fixed);
+        meterRegistry = new SimpleMeterRegistry();
+        service =
+                new IssuanceService(policies, licenses, signingKeys, audit, fixed, new GrantmintMetrics(meterRegistry));
         // Lenient-by-default stubs are configured per test to avoid unnecessary-stubbing failures.
         org.mockito.Mockito.lenient()
                 .when(signingKeys.signerForProduct(PRODUCT_ID))
@@ -192,6 +198,41 @@ class IssuanceServiceTest {
     void failsWhenPolicyMissing() {
         when(policies.findById(POLICY_ID)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.issue(command(null, null))).isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    void successfulMintRecordsIssuanceMetricsWithCatalogTags() {
+        Policy policy = policy(365, 2, Map.of());
+        when(policies.findById(POLICY_ID)).thenReturn(Optional.of(policy));
+
+        service.issue(command(null, null));
+        service.issue(command(null, null), AuditActorType.WEBHOOK);
+
+        assertThat(meterRegistry
+                        .get("grantmint.issuance.total")
+                        .tags("product", "acme-notes", "policy", "pro-annual", "source", "api")
+                        .counter()
+                        .count())
+                .isEqualTo(1.0);
+        assertThat(meterRegistry
+                        .get("grantmint.issuance.total")
+                        .tags("product", "acme-notes", "policy", "pro-annual", "source", "webhook")
+                        .counter()
+                        .count())
+                .isEqualTo(1.0);
+        assertThat(meterRegistry
+                        .get("grantmint.issuance.latency")
+                        .tag("product", "acme-notes")
+                        .timer()
+                        .count())
+                .isEqualTo(2);
+    }
+
+    @Test
+    void failedMintCountsNoIssuance() {
+        when(policies.findById(POLICY_ID)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.issue(command(null, null))).isInstanceOf(NoSuchElementException.class);
+        assertThat(meterRegistry.find("grantmint.issuance.total").counter()).isNull();
     }
 
     @Test

@@ -47,7 +47,10 @@ class LayeringArchitectureTest {
                         // it must never reach up into the api package. Omitting it here would exempt
                         // every dependency to/from it (consideringOnlyDependenciesInLayers) — the
                         // blind spot the M6–M10 audit flagged.
-                        "dev.hg.grantmint.server.security..")
+                        "dev.hg.grantmint.server.security..",
+                        // Metrics instrumentation is a service-layer concern: the issuance/validation
+                        // services record into it, and its DB-backed gauges read repositories.
+                        "dev.hg.grantmint.server.metrics..")
                 .layer("Domain")
                 .definedBy("dev.hg.grantmint.server.domain..", "dev.hg.grantmint.server.repo..")
                 .whereLayer("Web")

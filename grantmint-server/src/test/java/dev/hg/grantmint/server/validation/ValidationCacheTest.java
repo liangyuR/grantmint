@@ -66,6 +66,6 @@ class ValidationCacheTest {
 
     private static ValidationSnapshot snapshot() {
         return new ValidationSnapshot(
-                UUID.randomUUID(), LicenseStatus.ACTIVE, true, null, null, 1, Map.of("team_sync", true));
+                UUID.randomUUID(), "acme-notes", LicenseStatus.ACTIVE, true, null, null, 1, Map.of("team_sync", true));
     }
 }
