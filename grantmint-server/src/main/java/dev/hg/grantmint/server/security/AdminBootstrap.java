@@ -27,10 +27,10 @@ public class AdminBootstrap implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        String username = properties.bootstrapUsername();
-        String password = properties.bootstrapPassword();
+        String username = properties.username();
+        String password = properties.password();
         if (password == null || password.isBlank()) {
-            log.info("No grantmint.admin.bootstrap-password set; skipping admin bootstrap. "
+            log.info("No grantmint.admin.password set; skipping admin bootstrap. "
                     + "Set GRANTMINT_ADMIN_PASSWORD on first boot to seed an operator.");
             return;
         }

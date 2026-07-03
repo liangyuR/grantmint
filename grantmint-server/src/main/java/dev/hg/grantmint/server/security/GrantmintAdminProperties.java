@@ -9,14 +9,16 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * empty {@code admin_users} table; thereafter operators are managed through the API. See
  * docs/features/ADMIN_AND_API_AUTH.md.
  *
- * @param bootstrapUsername username for the bootstrap admin, used only when the table is empty
- * @param bootstrapPassword password for the bootstrap admin; when blank, no bootstrap admin is
- *     created (the operator must seed one another way)
+ * @param username username for the bootstrap admin, used only when the table is empty. Binds
+ *     {@code grantmint.admin.username} / {@code GRANTMINT_ADMIN_USERNAME} — the contract the
+ *     deployment docs promise (the pre-fix {@code bootstrap-username} binding never matched them)
+ * @param password password for the bootstrap admin; when blank, no bootstrap admin is created (the
+ *     operator must seed one another way)
  * @param session session-token settings
  */
 @ConfigurationProperties(prefix = "grantmint.admin")
 public record GrantmintAdminProperties(
-        @DefaultValue("admin") String bootstrapUsername, String bootstrapPassword, @DefaultValue Session session) {
+        @DefaultValue("admin") String username, String password, @DefaultValue Session session) {
 
     /**
      * @param ttl absolute lifetime of a freshly minted session token

@@ -57,19 +57,8 @@ services:
       # GrantmintAdminProperties.java). CHANGE these before anything but a
       # throwaway local/demo run — rotate via POST /admin/auth/password after
       # first login.
-      #
-      # NOTE: docs (ADMIN_AND_API_AUTH.md, DEPLOYMENT_GUIDE.md, SETUP_GUIDE.md,
-      # QUICK_START.md) and even this class's own javadoc say
-      # GRANTMINT_ADMIN_USERNAME / GRANTMINT_ADMIN_PASSWORD, but
-      # GrantmintAdminProperties binds grantmint.admin.bootstrap-username /
-      # grantmint.admin.bootstrap-password (prefix "grantmint.admin", fields
-      # bootstrapUsername/bootstrapPassword). Spring's relaxed env binding maps
-      # those to GRANTMINT_ADMIN_BOOTSTRAP_USERNAME / _BOOTSTRAP_PASSWORD, not
-      # the doc's names — confirmed empirically: GRANTMINT_ADMIN_PASSWORD alone
-      # left the server logging "No grantmint.admin.bootstrap-password set;
-      # skipping admin bootstrap." The names below are what actually works.
-      GRANTMINT_ADMIN_BOOTSTRAP_USERNAME: admin
-      GRANTMINT_ADMIN_BOOTSTRAP_PASSWORD: changeme-admin-password
+      GRANTMINT_ADMIN_USERNAME: admin
+      GRANTMINT_ADMIN_PASSWORD: changeme-admin-password
     volumes:
       # Signing keys: the server resolves each product's private key from a
       # `private_key_ref` pointer (file:/env: schemes) registered per signing
