@@ -17,9 +17,9 @@ import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -54,14 +54,20 @@ public class AdminAuthController {
         this.properties = properties;
     }
 
-    /** Exchange username/password for an opaque session bearer token. Open (no auth required). */
+    /**
+     * Exchange username/password for an opaque session bearer token. Open (no auth required).
+     *
+     * <p>The return type is deliberately {@code ResponseEntity<LoginResponse>}, not a wildcard:
+     * Spring AOT derives the native-image Jackson hints from this signature, and a {@code <?>}
+     * here shipped a native binary whose login responded 406 (GRANTMINT-119). The 401 path goes
+     * through {@link ApiExceptionHandler} instead of a second body type.
+     */
     @PostMapping("/login")
     @Operation(summary = "Log in", description = "Exchange username/password for a session bearer token. Open.")
-    ResponseEntity<?> login(@RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+    ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         Optional<LoginResult> result = sessions.login(request.username(), request.password());
         if (result.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(new ApiError("unauthorized", "Invalid username or password."));
+            throw new BadCredentialsException("Invalid username or password.");
         }
         LoginResult session = result.get();
         audit.record(

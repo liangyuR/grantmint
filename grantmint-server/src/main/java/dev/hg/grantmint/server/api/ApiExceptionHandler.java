@@ -9,17 +9,31 @@ import java.util.NoSuchElementException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
  * Translates service-layer exceptions to the shared {@link ApiError} envelope: a missing entity
  * becomes 404, an invalid argument becomes 400, an authentic-but-unusable license becomes 422, and
- * an over-limit caller becomes 429 with {@code Retry-After}. Security denials (401/403) are handled
- * earlier by {@code SecurityErrorResponder} and never reach here.
+ * an over-limit caller becomes 429 with {@code Retry-After}. Filter-chain security denials
+ * (401/403) are handled earlier by {@code SecurityErrorResponder} and never reach here — the one
+ * controller-level 401 is the login credential check below.
  */
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    /**
+     * A failed admin login — a 401 with {@code unauthorized}. Thrown by the login endpoint itself
+     * (the request never carried credentials for the filter chain to reject), so unlike the other
+     * security denials it surfaces here. Keeping the failure out of the controller's return type
+     * lets the success signature stay concrete, which is what Spring AOT derives the native-image
+     * Jackson hints from (GRANTMINT-119).
+     */
+    @ExceptionHandler(BadCredentialsException.class)
+    ResponseEntity<ApiError> handleBadCredentials(BadCredentialsException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiError("unauthorized", ex.getMessage()));
+    }
 
     @ExceptionHandler(NoSuchElementException.class)
     ResponseEntity<ApiError> handleNotFound(NoSuchElementException ex) {

@@ -152,6 +152,30 @@
                 <groupId>org.graalvm.buildtools</groupId>
                 <artifactId>native-maven-plugin</artifactId>
             </plugin>
+            <!-- Build-time entity enhancement. Under native, Spring sets
+                 hibernate.bytecode.provider=none, so Hibernate cannot generate lazy-association
+                 proxies at runtime — every LAZY @ManyToOne in server.domain would 500 with
+                 "Generation of HibernateProxy instances at runtime is not allowed" the first time
+                 it loads (GRANTMINT-120). Enhancing at build time bakes the lazy handling into the
+                 entity classes themselves; note this bytecode also runs on the JVM path, so entity
+                 behavior changes are covered by the full Testcontainers suite, not just the smoke. -->
+            <plugin>
+                <groupId>org.hibernate.orm.tooling</groupId>
+                <artifactId>hibernate-enhance-maven-plugin</artifactId>
+                <version>${hibernate.version}</version>
+                <executions>
+                    <execution>
+                        <id>enhance-entities</id>
+                        <goals>
+                            <goal>enhance</goal>
+                        </goals>
+                        <configuration>
+                            <enableLazyInitialization>true</enableLazyInitialization>
+                            <enableDirtyTracking>true</enableDirtyTracking>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>
