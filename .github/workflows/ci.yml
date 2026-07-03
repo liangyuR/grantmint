@@ -2,11 +2,13 @@
 # unit tests, jqwik property tests (the correctness contract for issuance/signing/
 # verification/seats), Testcontainers integration tests against real PostgreSQL 16,
 # the ArchUnit boundary/layering rules (crypto core stays Spring-free), Spotless
-# formatting, and the Locale.ROOT checkstyle lint. See docs/deployment/CI_CD.md.
+# formatting, the Locale.ROOT checkstyle lint, and the GraalVM native-image build
+# with a boot smoke against real Postgres. See docs/deployment/CI_CD.md.
 #
 # Deliberately absent for now:
-# - GraalVM native-image build — added when the native profile lands (M13, GRANTMINT-110).
 # - dashboard build — M11 is deferred.
+# - multi-arch (arm64) native builds — those belong to the release workflow
+#   (GRANTMINT-112); CI proves the image builds and boots on linux/amd64.
 name: ci
 
 on:
@@ -47,3 +49,72 @@ jobs:
           name: surefire-reports
           path: "**/target/surefire-reports/"
           retention-days: 7
+
+  # The slow, RAM-heavy tail: prove the single binary still builds under the AOT
+  # closed-world model and boots against a real Postgres. If only this job is red,
+  # it's almost always a missing reachability hint, not a logic bug — see
+  # grantmint-server/src/main/resources/META-INF/native-image/dev.hg.grantmint/
+  # grantmint-server-hints/README.md and docs/operations/TROUBLESHOOTING.md.
+  native-image:
+    name: native-image build + boot smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: grantmint
+          POSTGRES_USER: grantmint
+          POSTGRES_PASSWORD: grantmint
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U grantmint -d grantmint"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up GraalVM CE 21
+        uses: graalvm/setup-graalvm@v1
+        with:
+          distribution: graalvm-community
+          java-version: "21"
+          cache: maven
+
+      # native:compile must run on grantmint-server alone — with -am the goal also
+      # fires on the aggregator POM and dies with "Image classpath is empty" — so
+      # grantmint-core (and the parent POM) must be installed first.
+      - name: Install grantmint-core
+        run: ./mvnw -B -ntp -DskipTests install -pl grantmint-core -am
+
+      - name: Build the native image
+        run: ./mvnw -B -ntp -Pnative -DskipTests -pl grantmint-server native:compile
+
+      # Boot smoke: the binary must come up against real Postgres (Flyway migrates
+      # at boot) and report UP on the loopback-only management port. The full
+      # issue→activate→validate→revoke native cycle is tracked as GRANTMINT-116.
+      - name: Boot the binary and probe health
+        env:
+          GRANTMINT_DB_URL: jdbc:postgresql://localhost:5432/grantmint
+          GRANTMINT_DB_USER: grantmint
+          GRANTMINT_DB_PASSWORD: grantmint
+        run: |
+          ./grantmint-server/target/grantmint-server &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9090/actuator/health | grep -q '"status":"UP"'; then
+              echo "health is UP"
+              kill "$SERVER_PID"
+              exit 0
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "server process exited before becoming healthy"
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "health never reached UP within 30s"
+          kill "$SERVER_PID"
+          exit 1
