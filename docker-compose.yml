@@ -1,0 +1,106 @@
+# Grantmint local/demo compose: grantmint-server (fat-JAR fallback image,
+# grantmint-server/Dockerfile) + PostgreSQL 16.
+#
+# This is a LOCAL/DEMO stack (GRANTMINT-111), not the hardened prod topology
+# described in docs/deployment/DOCKER_SETUP.md (which documents a GraalVM
+# native-image primary Dockerfile + Gradle build that do not exist in this
+# Maven-based repo — see the note at the top of grantmint-server/Dockerfile).
+# Env var names below (GRANTMINT_DB_URL/DB_USER/DB_PASSWORD) match the code
+# (grantmint-server/src/main/resources/application.yml), not the doc's
+# GRANTMINT_DATASOURCE_* names.
+#
+# Usage:
+#   docker compose build
+#   docker compose up -d
+#   curl -fsS http://127.0.0.1:9090/actuator/health
+#   docker compose down -v
+#
+# CHANGE_ME placeholders below are obviously-fake demo values — replace them
+# (or supply real ones via a gitignored .env) before using this anywhere
+# other than local/demo.
+
+name: grantmint
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: grantmint
+      POSTGRES_USER: grantmint
+      POSTGRES_PASSWORD: changeme-db-password
+    volumes:
+      - grantmint-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grantmint -d grantmint"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks: [grantmint-net]
+
+  grantmint-server:
+    build:
+      context: .
+      dockerfile: grantmint-server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GRANTMINT_DB_URL: jdbc:postgresql://postgres:5432/grantmint
+      GRANTMINT_DB_USER: grantmint
+      GRANTMINT_DB_PASSWORD: changeme-db-password
+      # Bootstrap operator: AdminBootstrap seeds this admin only when
+      # admin_users is empty and this password is non-blank (see
+      # grantmint-server/.../security/AdminBootstrap.java +
+      # GrantmintAdminProperties.java). CHANGE these before anything but a
+      # throwaway local/demo run — rotate via POST /admin/auth/password after
+      # first login.
+      #
+      # NOTE: docs (ADMIN_AND_API_AUTH.md, DEPLOYMENT_GUIDE.md, SETUP_GUIDE.md,
+      # QUICK_START.md) and even this class's own javadoc say
+      # GRANTMINT_ADMIN_USERNAME / GRANTMINT_ADMIN_PASSWORD, but
+      # GrantmintAdminProperties binds grantmint.admin.bootstrap-username /
+      # grantmint.admin.bootstrap-password (prefix "grantmint.admin", fields
+      # bootstrapUsername/bootstrapPassword). Spring's relaxed env binding maps
+      # those to GRANTMINT_ADMIN_BOOTSTRAP_USERNAME / _BOOTSTRAP_PASSWORD, not
+      # the doc's names — confirmed empirically: GRANTMINT_ADMIN_PASSWORD alone
+      # left the server logging "No grantmint.admin.bootstrap-password set;
+      # skipping admin bootstrap." The names below are what actually works.
+      GRANTMINT_ADMIN_BOOTSTRAP_USERNAME: admin
+      GRANTMINT_ADMIN_BOOTSTRAP_PASSWORD: changeme-admin-password
+    volumes:
+      # Signing keys: the server resolves each product's private key from a
+      # `private_key_ref` pointer (file:/env: schemes) registered per signing
+      # key via the admin API — never from server-level config at boot, so
+      # the server starts fine with zero keys mounted (it just can't issue/
+      # sign yet). To demo issuance, generate a keypair with the CLI into
+      # this directory BEFORE starting the stack, e.g.:
+      #   mkdir -p ./keys
+      #   ./mvnw -pl grantmint-cli -am package -DskipTests
+      #   java -jar grantmint-cli/target/grantmint-cli-*.jar keygen --out ./keys/signing-seed.hex
+      #   chmod 600 ./keys/signing-seed.hex
+      # then register the key via the admin API with
+      # private_key_ref = "file:/keys/signing-seed.hex". Never commit real
+      # key material; this repo does not generate or ship any.
+      - ./keys:/keys:ro
+    ports:
+      - "8080:8080"
+      # Actuator/management port (health + Prometheus) — bind to loopback
+      # only, never publish broadly (docs/operations/MONITORING_LOGGING.md).
+      - "127.0.0.1:9090:9090"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9090/actuator/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 45s
+    networks: [grantmint-net]
+
+volumes:
+  grantmint-db-data:
+
+networks:
+  grantmint-net:
+    driver: bridge

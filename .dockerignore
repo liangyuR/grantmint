@@ -1,0 +1,22 @@
+# Keep the Docker build context small and out of secrets/build noise.
+# (Mirrors the intent of DOCKER_SETUP.md's .dockerignore guidance, adapted for
+# this repo's actual Maven layout — see grantmint-server/Dockerfile.)
+
+.git/
+target/
+**/target/
+dashboard/
+node_modules/
+**/node_modules/
+
+# Local key material / secrets — never enter an image layer.
+keys/
+secrets/
+.env
+*.pem
+*.key
+
+# Editor/OS noise.
+.idea/
+.vscode/
+*.DS_Store
