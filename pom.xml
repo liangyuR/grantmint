@@ -54,6 +54,8 @@
         <spotless.version>2.43.0</spotless.version>
         <checkstyle.plugin.version>3.5.0</checkstyle.plugin.version>
         <checkstyle.version>10.18.2</checkstyle.version>
+        <!-- Fat-jar packaging for grantmint-cli (not managed by the Spring Boot BOM). -->
+        <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
     </properties>
 
     <dependencyManagement>

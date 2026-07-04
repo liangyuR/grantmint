@@ -43,4 +43,49 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Fat-jar packaging: `package` produces an executable grantmint-cli-*.jar with all
+                 dependencies bundled and a Main-Class manifest entry, replacing the thin main
+                 artifact (the thin jar is kept alongside as original-grantmint-cli-*.jar). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>${maven-shade-plugin.version}</version>
+                <executions>
+                    <!-- Explicit id: the spring-boot-starter-parent (grandparent POM) also binds a
+                         package-phase shade execution with an unqualified id. Without our own id
+                         here, Maven merges the two executions' <transformers> lists positionally,
+                         mixing Spring Boot's transformer configuration into ours. -->
+                    <execution>
+                        <id>shade-cli-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>dev.hg.grantmint.cli.GrantmintCli</mainClass>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                            </transformers>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

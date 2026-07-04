@@ -80,27 +80,15 @@ req() {
 command -v python3 >/dev/null || fail "python3 is required"
 [ -x "$SERVER_BIN" ] || fail "native binary not found at $SERVER_BIN"
 
-# --- 0. CLI classpath (keygen + offline verify come from grantmint-cli) -------
-# Regenerate when the jar or ANY classpath entry is gone — intermediate Maven
-# runs routinely delete sibling-module jars that an old cp.txt still points at.
-step "Preparing the grantmint-cli classpath"
-cli_classpath_stale() {
-    CLI_JAR="$(ls "$ROOT"/grantmint-cli/target/grantmint-cli-*.jar 2>/dev/null | head -1 || true)"
-    [ -n "$CLI_JAR" ] || return 0
-    [ -f "$ROOT/grantmint-cli/target/cp.txt" ] || return 0
-    local IFS=':'
-    for entry in $(cat "$ROOT/grantmint-cli/target/cp.txt"); do
-        [ -e "$entry" ] || return 0
-    done
-    return 1
-}
-if cli_classpath_stale; then
-    (cd "$ROOT" && ./mvnw -q -B -ntp -DskipTests -pl grantmint-cli -am package \
-        dependency:build-classpath -Dmdep.outputFile="$ROOT/grantmint-cli/target/cp.txt") \
+# --- 0. CLI jar (keygen + offline verify come from grantmint-cli) ------------
+step "Preparing the grantmint-cli jar"
+CLI_JAR="$(ls "$ROOT"/grantmint-cli/target/grantmint-cli-*.jar 2>/dev/null | head -1 || true)"
+if [ -z "$CLI_JAR" ]; then
+    (cd "$ROOT" && ./mvnw -q -B -ntp -DskipTests -pl grantmint-cli -am package) \
         || fail "could not build grantmint-cli"
     CLI_JAR="$(ls "$ROOT"/grantmint-cli/target/grantmint-cli-*.jar | head -1)"
 fi
-CLI="java -cp $CLI_JAR:$(cat "$ROOT/grantmint-cli/target/cp.txt") dev.hg.grantmint.cli.GrantmintCli"
+CLI="java -jar $CLI_JAR"
 
 # --- 1. Ed25519 keypair via the CLI ------------------------------------------
 step "keygen: Ed25519 seed file + public key"
