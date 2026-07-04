@@ -1,24 +1,32 @@
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { AuthProvider } from './auth/AuthContext'
+import ProtectedRoute from './components/ProtectedRoute'
+import Shell from './components/Shell'
+import LoginPage from './pages/LoginPage'
+import ProductsPage from './pages/ProductsPage'
+import PoliciesPage from './pages/PoliciesPage'
+import LicensesPage from './pages/LicensesPage'
+import LicenseDetailDrawer from './pages/LicenseDetailDrawer'
+import DemoPage from './pages/DemoPage'
+
 export default function App() {
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
-      <header className="border-b border-gray-800 bg-gray-900 px-6 py-4 flex items-center gap-3">
-        <span className="text-lg font-semibold tracking-tight text-white">
-          Grantmint
-        </span>
-        <span className="text-xs font-medium px-2 py-0.5 rounded bg-indigo-600 text-indigo-100 uppercase tracking-wider">
-          Operator Console
-        </span>
-      </header>
-      <main className="flex-1 flex items-center justify-center px-6">
-        <div className="text-center space-y-3">
-          <h1 className="text-3xl font-bold text-white">
-            Grantmint
-          </h1>
-          <p className="text-gray-400 text-sm max-w-sm">
-            Self-hostable license &amp; entitlement server &mdash; operator console
-          </p>
-        </div>
-      </main>
-    </div>
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<Shell />}>
+            <Route index element={<Navigate to="/products" replace />} />
+            <Route path="products" element={<ProductsPage />} />
+            <Route path="policies" element={<PoliciesPage />} />
+            <Route path="licenses" element={<LicensesPage />}>
+              <Route path=":keyId" element={<LicenseDetailDrawer />} />
+            </Route>
+            <Route path="demo" element={<DemoPage />} />
+            <Route path="*" element={<Navigate to="/products" replace />} />
+          </Route>
+        </Route>
+      </Routes>
+    </AuthProvider>
   )
 }
