@@ -4,7 +4,7 @@
 
 **Last Updated: 2026-06-28**
 
-[![Build](https://img.shields.io/github/actions/workflow/status/hg/grantmint/ci.yml?branch=main)](https://github.com/hg/grantmint/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/harungungorer/grantmint/ci.yml?branch=main)](https://github.com/harungungorer/grantmint/actions)
 [![License: AGPL-3.0 (server) / Apache-2.0 (SDK)](https://img.shields.io/badge/license-AGPL--3.0%20server%20%2F%20Apache--2.0%20SDK-blue.svg)](LICENSE)
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![GraalVM Native](https://img.shields.io/badge/GraalVM-native--image-purple.svg)](https://www.graalvm.org/)
@@ -150,7 +150,7 @@ Two paths below. Both end with you issuing a license and verifying its token **o
 
 ```bash
 # 1. Clone and start the stack (server + Postgres).
-git clone https://github.com/hg/grantmint.git
+git clone https://github.com/harungungorer/grantmint.git
 cd grantmint
 docker compose up -d
 
@@ -167,7 +167,7 @@ curl -s http://localhost:8080/actuator/health
 
 ```bash
 # 1. Download the single self-contained native binary (sub-50ms startup).
-curl -L -o grantmint https://github.com/hg/grantmint/releases/latest/download/grantmint-linux-amd64
+curl -L -o grantmint https://github.com/harungungorer/grantmint/releases/latest/download/grantmint-linux-amd64
 chmod +x grantmint
 
 # 2. Point it at a Postgres instance and start.
