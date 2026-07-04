@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
  * the database (see {@code ck_signing_keys_ref_is_pointer}); this resolver dereferences the pointer
  * at issuance time and the seed lives in memory only for as long as a signer is being built. 🔒
  *
- * <p>Supported schemes in this build:
+ * <p>Supported schemes:
  *
  * <ul>
  *   <li>{@code file:/path/to/seed} — a file holding the seed as raw 32 bytes, 64-char hex, or
@@ -30,12 +30,19 @@ import org.springframework.stereotype.Component;
  *       (effectively {@code 0600}) or resolution is refused.
  *   <li>{@code env:VAR_NAME} — an environment variable holding the seed in any of the text encodings
  *       above.
+ *   <li>{@code vault:<api-path>[#<field>]} — HashiCorp Vault over HTTP; see {@link
+ *       VaultSecretSource}.
+ *   <li>{@code awssm:<secret-id-or-arn>[#<json-field>]} — AWS Secrets Manager via SigV4, SDK-free;
+ *       see {@link AwsSecretsManagerSource}.
+ *   <li>{@code gcpsm:projects/<p>/secrets/<s>[/versions/<v>]} — GCP Secret Manager REST; see {@link
+ *       GcpSecretManagerSource}.
+ *   <li>{@code sops:<path>[#<key>]} — decrypt via the {@code sops} binary; see {@link
+ *       SopsSecretSource}.
  * </ul>
  *
- * <p>The cloud-secret-manager schemes the schema permits ({@code vault:}, {@code awssm:}, {@code
- * gcpsm:}, {@code sops:}) are reserved but not wired in this build; a clear error is raised rather
- * than silently failing. See docs/architecture/ARCHITECTURE.md (issuance flow) and
- * docs/features/LICENSE_TOKEN_FORMAT.md.
+ * <p>Whatever the scheme, the fetched material must decode to a 32-byte Ed25519 seed (raw, hex, or
+ * base64) and is wiped once decoded. See docs/architecture/ARCHITECTURE.md (issuance flow),
+ * docs/features/LICENSE_TOKEN_FORMAT.md, and docs/deployment/DEPLOYMENT_GUIDE.md (key injection).
  */
 @Component
 public final class PrivateKeySeedResolver {
@@ -51,12 +58,26 @@ public final class PrivateKeySeedResolver {
     /** Lookup for {@code env:} refs; injectable so tests need not mutate the real environment. */
     private final UnaryOperator<String> environment;
 
+    private final VaultSecretSource vault;
+    private final AwsSecretsManagerSource awsSecretsManager;
+    private final GcpSecretManagerSource gcpSecretManager;
+    private final SopsSecretSource sops;
+
     public PrivateKeySeedResolver() {
         this(System::getenv);
     }
 
     public PrivateKeySeedResolver(UnaryOperator<String> environment) {
+        this(environment, SecretHttp.overJdk(), CommandRunner.process(), java.time.Clock.systemUTC());
+    }
+
+    PrivateKeySeedResolver(
+            UnaryOperator<String> environment, SecretHttp http, CommandRunner runner, java.time.Clock clock) {
         this.environment = Objects.requireNonNull(environment, "environment");
+        this.vault = new VaultSecretSource(http, environment);
+        this.awsSecretsManager = new AwsSecretsManagerSource(http, environment, clock);
+        this.gcpSecretManager = new GcpSecretManagerSource(http, environment, clock);
+        this.sops = new SopsSecretSource(runner, environment);
     }
 
     /**
@@ -77,10 +98,21 @@ public final class PrivateKeySeedResolver {
         return switch (scheme) {
             case "file" -> fromFile(locator);
             case "env" -> fromEnv(locator);
-            case "vault", "awssm", "gcpsm", "sops" -> throw new SigningKeyException("private_key_ref scheme '" + scheme
-                    + "' is reserved but not wired in this build; use file: or env:");
+            case "vault" -> fromSource(vault.fetch(locator));
+            case "awssm" -> fromSource(awsSecretsManager.fetch(locator));
+            case "gcpsm" -> fromSource(gcpSecretManager.fetch(locator));
+            case "sops" -> fromSource(sops.fetch(locator));
             default -> throw new SigningKeyException("Unknown private_key_ref scheme '" + scheme + "'");
         };
+    }
+
+    /** Decode fetched secret material, wiping the intermediate copy like {@link #fromFile}. */
+    private static byte[] fromSource(byte[] material) {
+        try {
+            return decodeSeed(material);
+        } finally {
+            java.util.Arrays.fill(material, (byte) 0);
+        }
     }
 
     private byte[] fromFile(String locator) {

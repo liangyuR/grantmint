@@ -60,17 +60,19 @@ class PrivateKeySeedResolverTest {
     }
 
     @Test
-    void rejectsMalformedRefAndReservedSchemes() {
+    void rejectsMalformedRefAndUnknownSchemes() {
         PrivateKeySeedResolver resolver = new PrivateKeySeedResolver(name -> null);
         assertThatThrownBy(() -> resolver.resolveSeed("no-scheme"))
                 .isInstanceOf(SigningKeyException.class)
                 .hasMessageContaining("Malformed");
-        assertThatThrownBy(() -> resolver.resolveSeed("vault:secret/grantmint"))
-                .isInstanceOf(SigningKeyException.class)
-                .hasMessageContaining("not wired");
         assertThatThrownBy(() -> resolver.resolveSeed("smb:share"))
                 .isInstanceOf(SigningKeyException.class)
                 .hasMessageContaining("Unknown");
+        // vault:/awssm:/gcpsm:/sops: are wired now; unconfigured environments fail with setup guidance,
+        // per-scheme behavior lives in the *SecretSourceTest classes.
+        assertThatThrownBy(() -> resolver.resolveSeed("vault:secret/grantmint"))
+                .isInstanceOf(SigningKeyException.class)
+                .hasMessageContaining("VAULT_ADDR");
     }
 
     @Test
