@@ -100,7 +100,7 @@ class CrossVerifierFixtureTest {
         assertThatThrownBy(() -> verifier.verifyAt(confused, Instant.ofEpochSecond(IAT)))
                 .isInstanceOf(TokenVerificationException.class)
                 .satisfies(e -> assertThat(((TokenVerificationException) e).reason())
-                        .isEqualTo(TokenVerificationException.Reason.INVALID_SIGNATURE));
+                        .isEqualTo(TokenVerificationException.Reason.ALG_NOT_ALLOWED));
     }
 
     @Test

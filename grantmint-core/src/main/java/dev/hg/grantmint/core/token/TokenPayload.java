@@ -37,13 +37,24 @@ public record TokenPayload(
     public static final int CURRENT_VERSION = 1;
 
     public TokenPayload {
-        Objects.requireNonNull(lid, "lid");
-        Objects.requireNonNull(kid, "kid");
-        Objects.requireNonNull(prd, "prd");
-        Objects.requireNonNull(pol, "pol");
+        requireNonEmpty(lid, "lid");
+        requireNonEmpty(kid, "kid");
+        requireNonEmpty(prd, "prd");
+        requireNonEmpty(pol, "pol");
         Objects.requireNonNull(holder, "holder");
         entitlements = entitlements == null ? EntitlementSet.empty() : entitlements;
         constraints = normalizeConstraints(constraints);
+    }
+
+    /**
+     * The spec's claim table requires the identifying string claims to be non-empty; enforcing it
+     * here means the mint can never produce a token every verifier is contractually bound to reject.
+     */
+    private static void requireNonEmpty(String value, String name) {
+        Objects.requireNonNull(value, name);
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException("Claim '" + name + "' must be a non-empty string");
+        }
     }
 
     /** Build the ordered claim map for canonical serialization. Optional claims are omitted when null. */
@@ -74,11 +85,20 @@ public record TokenPayload(
     @SuppressWarnings("unchecked")
     public static TokenPayload fromClaimMap(Map<String, ?> map) {
         Objects.requireNonNull(map, "map");
-        EntitlementSet ent = map.get("ent") instanceof Map<?, ?> e
-                ? EntitlementSet.decode((Map<String, ?>) e)
-                : EntitlementSet.empty();
-        Map<String, Object> con =
-                map.get("con") instanceof Map<?, ?> c ? new LinkedHashMap<>((Map<String, Object>) c) : null;
+        // ent is a required claim and must be an object (the canonical writer always emits it, even
+        // for an empty entitlement set) — a missing or wrong-typed ent is malformed, never silently
+        // an empty set. This is part of the cross-verifier contract (CROSS_VERIFIER_FIXTURES.md).
+        if (!(map.get("ent") instanceof Map<?, ?> e)) {
+            throw new IllegalArgumentException("Claim 'ent' is required and must be an object");
+        }
+        EntitlementSet ent = EntitlementSet.decode((Map<String, ?>) e);
+        // con is optional; when the key is present with a non-null value it must be an object —
+        // never silently dropped (null is treated as absent, like nbf/seat).
+        Object conRaw = map.get("con");
+        if (conRaw != null && !(conRaw instanceof Map)) {
+            throw new IllegalArgumentException("Claim 'con' must be an object");
+        }
+        Map<String, Object> con = conRaw == null ? null : new LinkedHashMap<>((Map<String, Object>) conRaw);
         Holder holder = Holder.fromMap(requireMap(map, "hld"));
         // exp is a required claim whose value may be null (perpetual). A token that omits the key
         // entirely is malformed — never silently treated as perpetual. Distinguishable on the wire
@@ -125,8 +145,8 @@ public record TokenPayload(
     }
 
     private static String asString(Map<String, ?> map, String key) {
-        if (!(map.get(key) instanceof String s)) {
-            throw new IllegalArgumentException("Claim '" + key + "' must be a string");
+        if (!(map.get(key) instanceof String s) || s.isEmpty()) {
+            throw new IllegalArgumentException("Claim '" + key + "' must be a non-empty string");
         }
         return s;
     }

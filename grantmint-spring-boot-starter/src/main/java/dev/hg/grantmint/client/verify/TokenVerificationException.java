@@ -7,12 +7,23 @@ package dev.hg.grantmint.client.verify;
  */
 public class TokenVerificationException extends RuntimeException {
 
-    /** Why verification refused the token. */
+    /**
+     * Why verification refused the token. Mirrors the reference verifier's taxonomy one-to-one
+     * (grantmint-core {@code FailureReason}) so callers branching on the reason — telemetry telling
+     * an algorithm-confusion attempt apart from a corrupt token — see the same classification from
+     * either implementation.
+     */
     public enum Reason {
         /** Structurally broken: wrong segment count, bad base64url, invalid JSON, missing claims. */
         MALFORMED,
-        /** Header pinning failed or the Ed25519 signature does not match the signing input. */
+        /** Header declares a signature scheme other than the pinned {@code alg=EdDSA, crv=Ed25519}. */
+        ALG_NOT_ALLOWED,
+        /** Header declares a foreign token type (e.g. a generic JWT) instead of {@code typ=GMT}. */
+        WRONG_TYPE,
+        /** The Ed25519 signature does not match the signing input. */
         INVALID_SIGNATURE,
+        /** Signature sound, but the claims declare a format version this verifier does not know. */
+        UNSUPPORTED_VERSION,
         /** Signature sound, but {@code now >= exp} (exp is exclusive). */
         EXPIRED,
         /** Signature sound, but {@code now < nbf}. */

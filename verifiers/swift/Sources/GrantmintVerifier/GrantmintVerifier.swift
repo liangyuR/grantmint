@@ -12,12 +12,15 @@
 //   1. exactly three non-empty dot-separated segments, each STRICT unpadded base64url — one text
 //      form per byte string: '=' padding, the standard '+'/'/' alphabet, and non-zero unused
 //      trailing bits are all malformed;
-//   2. header pinned to alg=EdDSA, crv=Ed25519, typ=GMT before any signature work;
+//   2. header carrying string alg/typ/kid/crv, pinned to alg=EdDSA, crv=Ed25519, typ=GMT before
+//      any signature work;
 //   3. Ed25519 signature over the ASCII bytes of the RECEIVED header.payload (never re-serialized);
 //   4. strict payload JSON: duplicate member names and non-integer numbers are malformed
 //      (JSONSerialization alone is last-wins on duplicates and reads floats — too lenient);
-//      ver == 1; lid/kid/prd/pol/hld(n,e)/iat required; exp a required key whose value may be
-//      null (perpetual); nbf genuinely optional;
+//      ver == 1; lid/kid/prd/pol/hld(n,e) required non-empty strings, iat a required integer,
+//      ent a required object of flag | limit | string values; con (object) and seat (integer)
+//      optional but never wrong-typed; exp a required key whose value may be null (perpetual);
+//      nbf genuinely optional;
 //   5. now >= exp is expired (exp exclusive); now < nbf is not yet valid (nbf inclusive).
 
 import CryptoKit
@@ -57,9 +60,12 @@ public func verifyLicense(_ token: String, publicKeyBase64: String, now: Int64) 
         let signature = decodeBase64UrlStrict(signatureSeg)
     else { throw LicenseError.malformed }
 
-    // 2) Scheme + type pinning BEFORE the signature (closes JWT alg confusion).
+    // 2) Scheme + type pinning BEFORE the signature (closes JWT alg confusion). Like the Java
+    //    reference, the header must carry all four fields as strings — a kid-less header is
+    //    malformed — and alg/crv/typ must hold exactly the pinned values.
     guard StrictJSONScan.isStrictObject(headerData),
         let header = (try? JSONSerialization.jsonObject(with: headerData)) as? [String: Any],
+        header["kid"] as? String != nil,
         header["alg"] as? String == "EdDSA",
         header["crv"] as? String == "Ed25519",
         header["typ"] as? String == "GMT"
@@ -72,22 +78,39 @@ public func verifyLicense(_ token: String, publicKeyBase64: String, now: Int64) 
     }
 
     // 4) The signature has spoken — now (and only now) trust and parse the payload, strictly.
+    //    The claim table (LICENSE_TOKEN_FORMAT.md) marks lid/kid/prd/pol/hld/iat required — with
+    //    non-empty strings — and ent a required object of flag | limit | string values under
+    //    non-blank keys. Absence, a wrong type, or an empty required string is malformed, exactly
+    //    like the Java, Go, and starter verifiers.
     guard StrictJSONScan.isStrictObject(payloadData),
         let obj = (try? JSONSerialization.jsonObject(with: payloadData)) as? [String: Any],
-        obj["ver"] as? Int64 == 1
+        try integerClaim(obj["ver"]) == 1
     else { throw LicenseError.malformed }
-    guard let kid = obj["kid"] as? String,
-        let lid = obj["lid"] as? String,
-        let prd = obj["prd"] as? String,
-        let pol = obj["pol"] as? String,
+    guard let kid = nonEmptyString(obj["kid"]),
+        let lid = nonEmptyString(obj["lid"]),
+        let prd = nonEmptyString(obj["prd"]),
+        let pol = nonEmptyString(obj["pol"]),
         let hld = obj["hld"] as? [String: Any],
-        hld["n"] as? String != nil, hld["e"] as? String != nil,
-        let iat = obj["iat"] as? Int64
+        nonEmptyString(hld["n"]) != nil, nonEmptyString(hld["e"]) != nil,
+        let iat = try integerClaim(obj["iat"]),
+        let ent = obj["ent"] as? [String: Any]
     else { throw LicenseError.malformed }
-    // exp is a REQUIRED key whose value may be null (perpetual). Absence is malformed.
+    for (entKey, entValue) in ent {
+        guard !entKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            entValue is NSNumber || entValue is String  // strict scan already banned floats
+        else { throw LicenseError.malformed }
+    }
+    // exp is a REQUIRED key whose value may be null (perpetual). Absence is malformed — and a
+    // present exp/nbf/seat with any non-integer, or a con that is not an object, is malformed
+    // too, never silently ignored (a string exp would otherwise read as perpetual here while
+    // every other verifier rejects the same bytes).
     guard obj.keys.contains("exp") else { throw LicenseError.malformed }
-    let exp = obj["exp"] as? Int64  // nil when the value is JSON null (perpetual)
-    let nbf = obj["nbf"] as? Int64
+    let exp = try integerClaim(obj["exp"])  // nil when the value is JSON null (perpetual)
+    let nbf = try integerClaim(obj["nbf"])
+    _ = try integerClaim(obj["seat"])  // accept/reject parity; seat is not surfaced in VerifiedLicense
+    if let conRaw = obj["con"], !(conRaw is NSNull), !(conRaw is [String: Any]) {
+        throw LicenseError.malformed
+    }
 
     // 5) Temporal window: nbf inclusive, exp exclusive.
     if let nbf, now < nbf { throw LicenseError.notYetValid }
@@ -101,7 +124,26 @@ public func verifyLicense(_ token: String, publicKeyBase64: String, now: Int64) 
         issuedAt: Date(timeIntervalSince1970: TimeInterval(iat)),
         notBefore: nbf.map { Date(timeIntervalSince1970: TimeInterval($0)) },
         expiresAt: exp.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-        entitlements: obj["ent"] as? [String: Any] ?? [:])
+        entitlements: ent)
+}
+
+/// An optional integer claim: an absent key or a JSON null reads as absent; any other non-integer
+/// value is malformed. JSONSerialization bridges booleans to NSNumber, and Swift's dynamic cast
+/// happily converts those to Int64 — but a signed `"ver":true` must be malformed here exactly as
+/// it is for the Java reference, so booleans are told apart by their CoreFoundation type.
+private func integerClaim(_ value: Any?) throws -> Int64? {
+    guard let value, !(value is NSNull) else { return nil }
+    guard let number = value as? NSNumber, CFGetTypeID(number as CFTypeRef) != CFBooleanGetTypeID() else {
+        throw LicenseError.malformed
+    }
+    return number.int64Value  // the strict scan already banned fractions, exponents, and >64-bit
+}
+
+/// A required string claim per the table: present, a string, and non-empty — else the caller
+/// treats it as malformed.
+private func nonEmptyString(_ value: Any?) -> String? {
+    guard let s = value as? String, !s.isEmpty else { return nil }
+    return s
 }
 
 /// Strict unpadded base64url. The wire admits exactly ONE text form per byte string: URL-safe

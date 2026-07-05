@@ -132,7 +132,12 @@ public final class LicenseValidator {
         return switch (reason) {
             case EXPIRED -> LicenseStatus.Reason.EXPIRED;
             case NOT_YET_VALID -> LicenseStatus.Reason.NOT_YET_VALID;
-            case MALFORMED, INVALID_SIGNATURE, WRONG_PRODUCT -> LicenseStatus.Reason.INVALID_SIGNATURE;
+            case MALFORMED,
+                    ALG_NOT_ALLOWED,
+                    WRONG_TYPE,
+                    INVALID_SIGNATURE,
+                    UNSUPPORTED_VERSION,
+                    WRONG_PRODUCT -> LicenseStatus.Reason.INVALID_SIGNATURE;
         };
     }
 

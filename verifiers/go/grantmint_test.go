@@ -125,16 +125,28 @@ func signRaw(t *testing.T, headerJSON, payloadJSON string) string {
 
 const pinnedHeaderJSON = `{"alg":"EdDSA","crv":"Ed25519","kid":"GMK1","typ":"GMT"}`
 
+// requiredTail carries every required claim except exp and ver, so each adversarial case below
+// isolates exactly one defect (mirrors the Swift and starter parity suites).
+const requiredTail = `"ent":{},"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p"`
+
 func TestValidlySignedButNonStrictPayloadsAreMalformed(t *testing.T) {
 	cases := map[string]string{
-		"duplicate key":       `{"exp":null,"exp":null,"ver":1}`,
-		"float exp":           `{"exp":1.5,"ver":1}`,
-		"exponent number":     `{"exp":2e9,"ver":1}`,
-		"oversized integer":   `{"exp":99999999999999999999,"ver":1}`,
-		"missing exp":         `{"ver":1}`,
-		"unknown ver":         `{"exp":null,"ver":2}`,
-		"trailing content":    `{"exp":null,"ver":1} {}`,
+		"duplicate key":       `{"exp":null,"exp":null,` + requiredTail + `,"ver":1}`,
+		"float exp":           `{"exp":1.5,` + requiredTail + `,"ver":1}`,
+		"exponent number":     `{"exp":2e9,` + requiredTail + `,"ver":1}`,
+		"oversized integer":   `{"exp":99999999999999999999,` + requiredTail + `,"ver":1}`,
+		"string exp":          `{"exp":"1782666000",` + requiredTail + `,"ver":1}`,
+		"missing exp":         `{` + requiredTail + `,"ver":1}`,
+		"unknown ver":         `{"exp":null,` + requiredTail + `,"ver":2}`,
+		"trailing content":    `{"exp":null,` + requiredTail + `,"ver":1} {}`,
 		"non-object toplevel": `[1,2,3]`,
+		"missing pol/hld/iat": `{"ent":{},"exp":null,"kid":"K","lid":"l","prd":"p","ver":1}`,
+		"missing ent":         `{"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}`,
+		"ent not an object":   `{"ent":42,"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}`,
+		"empty prd":           `{"ent":{},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"","ver":1}`,
+		"empty holder email":  `{"ent":{},"exp":null,"hld":{"e":"","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}`,
+		"con not an object":   `{"con":7,"exp":null,` + requiredTail + `,"ver":1}`,
+		"seat not an integer": `{"exp":null,` + requiredTail + `,"seat":"two","ver":1}`,
 	}
 	for name, payloadJSON := range cases {
 		token := signRaw(t, pinnedHeaderJSON, payloadJSON)
@@ -144,15 +156,24 @@ func TestValidlySignedButNonStrictPayloadsAreMalformed(t *testing.T) {
 	}
 }
 
+func TestHeaderMissingKidIsMalformed(t *testing.T) {
+	// The reference decodeHeader requires all four header fields as strings; a validly-signed
+	// token whose header drops kid must be malformed here too.
+	token := signRaw(t, `{"alg":"EdDSA","crv":"Ed25519","typ":"GMT"}`, `{"exp":null,`+requiredTail+`,"ver":1}`)
+	if _, err := Verify(token, fixturePublicHex, fixtureIat); !errors.Is(err, ErrMalformed) {
+		t.Fatalf("kid-less header must be malformed, got %v", err)
+	}
+}
+
 func TestPerpetualNullExpNeverExpires(t *testing.T) {
-	token := signRaw(t, pinnedHeaderJSON, `{"exp":null,"ver":1}`)
+	token := signRaw(t, pinnedHeaderJSON, `{"exp":null,`+requiredTail+`,"ver":1}`)
 	if _, err := Verify(token, fixturePublicHex, 4102444800); err != nil { // year 2100
 		t.Fatalf("perpetual license must verify far in the future: %v", err)
 	}
 }
 
 func TestNbfGate(t *testing.T) {
-	token := signRaw(t, pinnedHeaderJSON, `{"exp":null,"nbf":1000,"ver":1}`)
+	token := signRaw(t, pinnedHeaderJSON, `{"exp":null,`+requiredTail+`,"nbf":1000,"ver":1}`)
 	if _, err := Verify(token, fixturePublicHex, 999); !errors.Is(err, ErrNotYetValid) {
 		t.Fatalf("before nbf must be not-yet-valid, got %v", err)
 	}

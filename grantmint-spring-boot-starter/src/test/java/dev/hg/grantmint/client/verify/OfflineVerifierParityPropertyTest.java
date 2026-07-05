@@ -217,6 +217,128 @@ class OfflineVerifierParityPropertyTest {
         });
     }
 
+    /**
+     * Full-surface audit remediation (2026-07): the claim table requires non-empty strings, an
+     * {@code ent} object of scalar values, and type-correct optional claims. A validly-signed token
+     * violating any of those must be MALFORMED in both implementations — the starter used to be the
+     * strict outlier on empty strings, and the reference used to silently tolerate a wrong-typed
+     * {@code ent}/{@code con} the starter refused.
+     */
+    @Example
+    void bothImplementationsRejectEmptyStringsAndWrongTypedClaims() {
+        KeyPair keys = Ed25519Keys.generate(RNG);
+        Ed25519Signer signer = new Ed25519Signer(keys.getPrivate(), "GMK1");
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"GMK1\",\"crv\":\"Ed25519\"}";
+        long exp = NOW.getEpochSecond() + 86400;
+        long iat = NOW.getEpochSecond();
+        String requiredTail = "\"ent\":{},\"hld\":{\"e\":\"e\",\"n\":\"n\"},\"iat\":" + iat
+                + ",\"kid\":\"K\",\"lid\":\"l\",\"pol\":\"po\",\"prd\":\"p\"";
+        Map<String, String> payloads = Map.of(
+                "empty prd",
+                        "{\"ent\":{},\"exp\":" + exp + ",\"hld\":{\"e\":\"e\",\"n\":\"n\"},\"iat\":" + iat
+                                + ",\"kid\":\"K\",\"lid\":\"l\",\"pol\":\"po\",\"prd\":\"\",\"ver\":1}",
+                "empty holder email",
+                        "{\"ent\":{},\"exp\":" + exp + ",\"hld\":{\"e\":\"\",\"n\":\"n\"},\"iat\":" + iat
+                                + ",\"kid\":\"K\",\"lid\":\"l\",\"pol\":\"po\",\"prd\":\"p\",\"ver\":1}",
+                "missing ent",
+                        "{\"exp\":" + exp + ",\"hld\":{\"e\":\"e\",\"n\":\"n\"},\"iat\":" + iat
+                                + ",\"kid\":\"K\",\"lid\":\"l\",\"pol\":\"po\",\"prd\":\"p\",\"ver\":1}",
+                "ent not an object",
+                        "{\"ent\":42,\"exp\":" + exp + ",\"hld\":{\"e\":\"e\",\"n\":\"n\"},\"iat\":" + iat
+                                + ",\"kid\":\"K\",\"lid\":\"l\",\"pol\":\"po\",\"prd\":\"p\",\"ver\":1}",
+                "ent value not a scalar",
+                        "{\"ent\":{\"tiers\":[1,2]},\"exp\":" + exp + ",\"hld\":{\"e\":\"e\",\"n\":\"n\"},\"iat\":"
+                                + iat + ",\"kid\":\"K\",\"lid\":\"l\",\"pol\":\"po\",\"prd\":\"p\",\"ver\":1}",
+                "con not an object", "{\"con\":7,\"exp\":" + exp + "," + requiredTail + ",\"ver\":1}",
+                "seat not an integer", "{\"exp\":" + exp + "," + requiredTail + ",\"seat\":\"two\",\"ver\":1}",
+                "string exp", "{\"exp\":\"" + exp + "\"," + requiredTail + ",\"ver\":1}");
+
+        OfflineTokenVerifier starter = new OfflineTokenVerifier(
+                Base64.getEncoder().encodeToString(Ed25519Keys.encodePublicKey(keys.getPublic())));
+        payloads.forEach((defect, payloadJson) -> {
+            String token = signRawJson(signer, headerJson, payloadJson);
+            assertThat(LicenseVerifier.verifyAt(token, keys.getPublic(), dev.hg.grantmint.core.time.Clock.fixed(NOW))
+                            .isValid())
+                    .as("reference must reject a token with %s", defect)
+                    .isFalse();
+            Throwable refusal = catchThrowable(() -> starter.verifyAt(token, NOW));
+            assertThat(refusal)
+                    .as("starter must reject a token with %s", defect)
+                    .isInstanceOf(TokenVerificationException.class);
+            assertThat(((TokenVerificationException) refusal).reason())
+                    .as("a token with %s is MALFORMED, not a temporal failure", defect)
+                    .isEqualTo(TokenVerificationException.Reason.MALFORMED);
+        });
+    }
+
+    /**
+     * The reason taxonomies must agree, not just the verdicts: alg confusion, a foreign typ, and an
+     * unknown format version each carry their own reason in both implementations.
+     */
+    @Example
+    void bothImplementationsAgreeOnPinAndVersionReasons() {
+        KeyPair keys = Ed25519Keys.generate(RNG);
+        Ed25519Signer signer = new Ed25519Signer(keys.getPrivate(), "GMK1");
+        long exp = NOW.getEpochSecond() + 86400;
+        String payloadJson = "{\"ent\":{},\"exp\":" + exp + ",\"hld\":{\"e\":\"e\",\"n\":\"n\"},\"iat\":"
+                + NOW.getEpochSecond() + ",\"kid\":\"K\",\"lid\":\"l\",\"pol\":\"po\",\"prd\":\"p\",\"ver\":1}";
+        String versionTwoJson = payloadJson.replace("\"ver\":1", "\"ver\":2");
+        String pinnedHeader = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"GMK1\",\"crv\":\"Ed25519\"}";
+
+        record Case(
+                String name,
+                String headerJson,
+                String payloadJson,
+                dev.hg.grantmint.core.token.FailureReason reference,
+                TokenVerificationException.Reason starter) {}
+        List<Case> cases = List.of(
+                new Case(
+                        "alg=none",
+                        pinnedHeader.replace("\"alg\":\"EdDSA\"", "\"alg\":\"none\""),
+                        payloadJson,
+                        dev.hg.grantmint.core.token.FailureReason.ALG_NOT_ALLOWED,
+                        TokenVerificationException.Reason.ALG_NOT_ALLOWED),
+                new Case(
+                        "crv=P-256",
+                        pinnedHeader.replace("\"crv\":\"Ed25519\"", "\"crv\":\"P-256\""),
+                        payloadJson,
+                        dev.hg.grantmint.core.token.FailureReason.ALG_NOT_ALLOWED,
+                        TokenVerificationException.Reason.ALG_NOT_ALLOWED),
+                new Case(
+                        "typ=JWT",
+                        pinnedHeader.replace("\"typ\":\"GMT\"", "\"typ\":\"JWT\""),
+                        payloadJson,
+                        dev.hg.grantmint.core.token.FailureReason.WRONG_TYPE,
+                        TokenVerificationException.Reason.WRONG_TYPE),
+                new Case(
+                        "ver=2",
+                        pinnedHeader,
+                        versionTwoJson,
+                        dev.hg.grantmint.core.token.FailureReason.UNSUPPORTED_VERSION,
+                        TokenVerificationException.Reason.UNSUPPORTED_VERSION),
+                new Case(
+                        "kid-less header",
+                        "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"crv\":\"Ed25519\"}",
+                        payloadJson,
+                        dev.hg.grantmint.core.token.FailureReason.MALFORMED,
+                        TokenVerificationException.Reason.MALFORMED));
+
+        OfflineTokenVerifier starter = new OfflineTokenVerifier(
+                Base64.getEncoder().encodeToString(Ed25519Keys.encodePublicKey(keys.getPublic())));
+        for (Case c : cases) {
+            String token = signRawJson(signer, c.headerJson(), c.payloadJson());
+            assertThat(LicenseVerifier.verifyAt(token, keys.getPublic(), dev.hg.grantmint.core.time.Clock.fixed(NOW))
+                            .reason())
+                    .as("reference reason for %s", c.name())
+                    .isEqualTo(c.reference());
+            Throwable refusal = catchThrowable(() -> starter.verifyAt(token, NOW));
+            assertThat(refusal).isInstanceOf(TokenVerificationException.class);
+            assertThat(((TokenVerificationException) refusal).reason())
+                    .as("starter reason for %s", c.name())
+                    .isEqualTo(c.starter());
+        }
+    }
+
     /** Sign arbitrary raw JSON under the given signer — for shapes the canonical issuer refuses to mint. */
     private static String signRawJson(Ed25519Signer signer, String headerJson, String payloadJson) {
         java.util.Base64.Encoder b64 = Base64.getUrlEncoder().withoutPadding();

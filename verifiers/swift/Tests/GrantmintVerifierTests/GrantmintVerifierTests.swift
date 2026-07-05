@@ -120,16 +120,44 @@ final class GrantmintVerifierTests: XCTestCase {
         assertThrows(header + "." + payload + "." + garbageSig, .malformed)
     }
 
+    // Every required claim except exp and ver, so each adversarial case isolates one defect.
+    static let requiredTail =
+        #""ent":{},"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p""#
+
     func testValidlySignedButNonStrictPayloadsAreMalformed() throws {
-        let requiredTail = #""hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p""#
+        let requiredTail = Self.requiredTail
         let cases: [(String, String)] = [
             ("duplicate key", #"{"exp":null,"exp":null,"# + requiredTail + #","ver":1}"#),
             ("float exp", #"{"exp":1.5,"# + requiredTail + #","ver":1}"#),
             ("exponent number", #"{"exp":2e9,"# + requiredTail + #","ver":1}"#),
             ("oversized integer", #"{"exp":99999999999999999999,"# + requiredTail + #","ver":1}"#),
+            ("string exp", #"{"exp":"1782666000","# + requiredTail + #","ver":1}"#),
             ("missing exp", "{" + requiredTail + #","ver":1}"#),
             ("unknown ver", #"{"exp":null,"# + requiredTail + #","ver":2}"#),
-            ("missing pol/hld/iat", #"{"exp":null,"kid":"K","lid":"l","prd":"p","ver":1}"#),
+            ("boolean ver", #"{"exp":null,"# + requiredTail + #","ver":true}"#),
+            ("missing pol/hld/iat", #"{"ent":{},"exp":null,"kid":"K","lid":"l","prd":"p","ver":1}"#),
+            (
+                "missing ent",
+                #"{"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}"#
+            ),
+            (
+                "ent not an object",
+                #"{"ent":42,"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}"#
+            ),
+            (
+                "ent value not a scalar",
+                #"{"ent":{"tiers":[1,2]},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}"#
+            ),
+            (
+                "empty prd",
+                #"{"ent":{},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"","ver":1}"#
+            ),
+            (
+                "empty holder email",
+                #"{"ent":{},"exp":null,"hld":{"e":"","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}"#
+            ),
+            ("con not an object", #"{"con":7,"exp":null,"# + requiredTail + #","ver":1}"#),
+            ("seat not an integer", #"{"exp":null,"# + requiredTail + #","seat":"two","ver":1}"#),
             ("trailing content", #"{"exp":null,"# + requiredTail + #","ver":1} {}"#),
         ]
         for (name, payloadJSON) in cases {
@@ -138,15 +166,24 @@ final class GrantmintVerifierTests: XCTestCase {
         }
     }
 
+    func testHeaderMissingKidIsMalformed() throws {
+        // The reference decodeHeader requires all four header fields as strings; a validly-signed
+        // token whose header drops kid must be malformed here too.
+        let token = try Self.signRaw(
+            headerJSON: #"{"alg":"EdDSA","crv":"Ed25519","typ":"GMT"}"#,
+            payloadJSON: #"{"exp":null,"# + Self.requiredTail + #","ver":1}"#)
+        assertThrows(token, .malformed, "kid-less header")
+    }
+
     func testPerpetualNullExpNeverExpires() throws {
-        let payload = #"{"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}"#
+        let payload = #"{"exp":null,"# + Self.requiredTail + #","ver":1}"#
         let token = try Self.signRaw(headerJSON: Self.pinnedHeaderJSON, payloadJSON: payload)
         XCTAssertNoThrow(
             try verifyLicense(token, publicKeyBase64: Self.publicKeyBase64, now: 4_102_444_800))  // year 2100
     }
 
     func testNbfGate() throws {
-        let payload = #"{"exp":null,"hld":{"e":"e","n":"n"},"iat":900,"kid":"K","lid":"l","nbf":1000,"pol":"po","prd":"p","ver":1}"#
+        let payload = #"{"exp":null,"# + Self.requiredTail + #","nbf":1000,"ver":1}"#
         let token = try Self.signRaw(headerJSON: Self.pinnedHeaderJSON, payloadJSON: payload)
         assertThrows(token, .notYetValid, at: 999)
         XCTAssertNoThrow(try verifyLicense(token, publicKeyBase64: Self.publicKeyBase64, now: 1000))  // nbf inclusive

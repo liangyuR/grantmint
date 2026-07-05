@@ -100,11 +100,21 @@ public final class OfflineTokenVerifier {
         } catch (IllegalArgumentException bad) {
             throw malformed("header is not strict JSON");
         }
-        if (!"EdDSA".equals(header.get("alg"))
-                || !"Ed25519".equals(header.get("crv"))
-                || !"GMT".equals(header.get("typ"))) {
+        // Same order and granularity as the reference verifier: header structure first (all four
+        // fields present as strings — a kid-less header is MALFORMED, exactly like the reference's
+        // decodeHeader), then the signature-scheme pin, then the token-type pin, each with its own
+        // reason — all before any signature work.
+        for (String field : new String[] {"alg", "typ", "kid", "crv"}) {
+            if (!(header.get(field) instanceof String)) {
+                throw malformed("header field '" + field + "' must be a string");
+            }
+        }
+        if (!"EdDSA".equals(header.get("alg")) || !"Ed25519".equals(header.get("crv"))) {
             throw new TokenVerificationException(
-                    Reason.INVALID_SIGNATURE, "header is not pinned to alg=EdDSA, crv=Ed25519, typ=GMT");
+                    Reason.ALG_NOT_ALLOWED, "header is not pinned to alg=EdDSA, crv=Ed25519");
+        }
+        if (!"GMT".equals(header.get("typ"))) {
+            throw new TokenVerificationException(Reason.WRONG_TYPE, "header typ is not GMT");
         }
     }
 
@@ -128,9 +138,6 @@ public final class OfflineTokenVerifier {
     }
 
     private static VerifiedToken checkClaims(Map<String, Object> claims, Instant now) {
-        if (!(claims.get("ver") instanceof Long version) || version != 1L) {
-            throw malformed("unsupported or missing token version");
-        }
         // exp is REQUIRED on the wire; its value may be null (perpetual). Absence is malformed —
         // never silently perpetual (CROSS_VERIFIER_FIXTURES.md, perpetual licenses note).
         if (!claims.containsKey("exp")) {
@@ -138,10 +145,11 @@ public final class OfflineTokenVerifier {
         }
         Long exp = optionalEpoch(claims, "exp");
         Long nbf = optionalEpoch(claims, "nbf");
-        // The spec's claim table marks lid/kid/prd/pol/hld/iat required (LICENSE_TOKEN_FORMAT.md);
-        // mirror the reference verifier exactly: absence or a wrong type is MALFORMED, never a
-        // silently-null field — and, like the reference, every structural check runs before the
-        // temporal ones so both implementations report the same reason for the same bytes.
+        // The spec's claim table marks lid/kid/prd/pol/hld/iat required non-empty and ent a required
+        // object (LICENSE_TOKEN_FORMAT.md); mirror the reference verifier exactly: absence, a wrong
+        // type, or an empty required string is MALFORMED, never a silently-defaulted field — and,
+        // like the reference, every structural check runs before the version gate and the temporal
+        // window so both implementations report the same reason for the same bytes.
         long iat = requiredEpoch(claims, "iat");
         String kid = requiredString(claims, "kid");
         String lid = requiredString(claims, "lid");
@@ -150,6 +158,33 @@ public final class OfflineTokenVerifier {
         Map<String, Object> holder = requiredObject(claims, "hld");
         String holderName = requiredString(holder, "n");
         String holderEmail = requiredString(holder, "e");
+        Map<String, Object> entitlements = requiredObject(claims, "ent");
+        // The reference's EntitlementSet.decode admits exactly flag | limit | string values under
+        // non-blank keys; anything else in a signed ent is malformed there and so must be here.
+        for (Map.Entry<String, Object> entitlement : entitlements.entrySet()) {
+            if (entitlement.getKey().strip().isEmpty()) {
+                throw malformed("entitlement keys must not be blank");
+            }
+            Object value = entitlement.getValue();
+            if (!(value instanceof Boolean || value instanceof Long || value instanceof String)) {
+                throw malformed("entitlement values must be a boolean flag, integer limit, or string");
+            }
+        }
+        Long seat = optionalEpoch(claims, "seat");
+        Map<String, Object> constraints = optionalObject(claims, "con");
+
+        // Format-version gate — the structure is sound, but refuse to interpret a layout this
+        // verifier does not understand. A non-integer or out-of-int-range ver is malformed like any
+        // other claim (the reference parses ver as an int); a well-typed unknown version gets its
+        // own reason.
+        if (!(claims.get("ver") instanceof Long version)
+                || version < Integer.MIN_VALUE
+                || version > Integer.MAX_VALUE) {
+            throw malformed("ver must be an integer format version");
+        }
+        if (version != 1L) {
+            throw new TokenVerificationException(Reason.UNSUPPORTED_VERSION, "unsupported token version " + version);
+        }
 
         if (nbf != null && now.getEpochSecond() < nbf) {
             throw new TokenVerificationException(Reason.NOT_YET_VALID, "token not valid before " + nbf);
@@ -168,9 +203,9 @@ public final class OfflineTokenVerifier {
                 Instant.ofEpochSecond(iat),
                 nbf == null ? null : Instant.ofEpochSecond(nbf),
                 exp == null ? null : Instant.ofEpochSecond(exp),
-                optionalObject(claims, "ent"),
-                claims.get("seat") instanceof Long seat ? seat : null,
-                optionalObject(claims, "con"));
+                entitlements,
+                seat,
+                constraints);
     }
 
     private static Long optionalEpoch(Map<String, Object> claims, String key) {

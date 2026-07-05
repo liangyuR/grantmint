@@ -11,10 +11,14 @@
 //
 //   - exactly three non-empty dot-separated segments, each strict unpadded base64url — one
 //     text form per byte string, so padding AND non-zero trailing bits are malformed;
-//   - header pinned to alg=EdDSA, crv=Ed25519, typ=GMT before any signature work;
+//   - header carrying string alg/typ/kid/crv, pinned to alg=EdDSA, crv=Ed25519, typ=GMT
+//     before any signature work;
 //   - Ed25519 signature over the ASCII bytes of the RECEIVED header.payload (never re-serialized);
 //   - strict payload parse: duplicate object keys are malformed, numbers are integers only
-//     within int64; ver must equal 1; exp is a required key whose value may be null (perpetual);
+//     within int64; ver must equal 1; lid/kid/prd/pol non-empty strings, hld an object with
+//     non-empty string n/e, iat an integer, and ent an object are all required; con (object)
+//     and seat (integer) are optional but never wrong-typed; exp is a required key whose
+//     value may be null (perpetual);
 //   - now >= exp is expired (exp exclusive); now < nbf is not yet valid (nbf optional).
 package grantmint
 
@@ -63,10 +67,17 @@ func Verify(token, publicKeyHex string, now int64) (map[string]any, error) {
 		return nil, ErrMalformed
 	}
 
-	// Pin the scheme BEFORE touching the signature (closes JWT algorithm confusion).
+	// Pin the scheme BEFORE touching the signature (closes JWT algorithm confusion). Like the
+	// Java reference, the header must carry all four fields as strings — a kid-less header is
+	// malformed — and then alg/crv/typ must hold exactly the pinned values.
 	header, err := parseStrictObject(headerBytes)
 	if err != nil {
 		return nil, ErrMalformed
+	}
+	for _, field := range []string{"alg", "typ", "kid", "crv"} {
+		if _, ok := header[field].(string); !ok {
+			return nil, ErrMalformed
+		}
 	}
 	if header["alg"] != "EdDSA" || header["crv"] != "Ed25519" || header["typ"] != "GMT" {
 		return nil, ErrMalformed
@@ -83,6 +94,58 @@ func Verify(token, publicKeyHex string, now int64) (map[string]any, error) {
 	claims, err := parseStrictObject(payloadBytes)
 	if err != nil {
 		return nil, ErrMalformed
+	}
+	// The claim table (LICENSE_TOKEN_FORMAT.md) marks lid/kid/prd/pol/hld/iat required — with
+	// non-empty strings — and ent a required object. The Java, Swift, and starter verifiers all
+	// reject a validly-signed token missing any of them as malformed; this verifier must agree
+	// on every byte (CROSS_VERIFIER_FIXTURES.md).
+	for _, key := range []string{"lid", "kid", "prd", "pol"} {
+		s, ok := claims[key].(string)
+		if !ok || s == "" {
+			return nil, ErrMalformed
+		}
+	}
+	hld, ok := claims["hld"].(map[string]any)
+	if !ok {
+		return nil, ErrMalformed
+	}
+	for _, key := range []string{"n", "e"} {
+		s, ok := hld[key].(string)
+		if !ok || s == "" {
+			return nil, ErrMalformed
+		}
+	}
+	if _, ok := claims["iat"].(int64); !ok {
+		return nil, ErrMalformed
+	}
+	ent, ok := claims["ent"].(map[string]any)
+	if !ok {
+		return nil, ErrMalformed
+	}
+	// The reference's EntitlementSet.decode admits exactly flag | limit | string values under
+	// non-blank keys; anything else in a signed ent is malformed there and so must be here.
+	for key, value := range ent {
+		if strings.TrimSpace(key) == "" {
+			return nil, ErrMalformed
+		}
+		switch value.(type) {
+		case bool, int64, string:
+		default:
+			return nil, ErrMalformed
+		}
+	}
+	// Optional claims may be absent (or JSON null, treated as absent) but never wrong-typed:
+	// con must be an object, seat an integer — silently ignoring a mistyped claim would let
+	// this verifier accept bytes every other implementation rejects.
+	if conRaw, present := claims["con"]; present && conRaw != nil {
+		if _, ok := conRaw.(map[string]any); !ok {
+			return nil, ErrMalformed
+		}
+	}
+	if seatRaw, present := claims["seat"]; present && seatRaw != nil {
+		if _, ok := seatRaw.(int64); !ok {
+			return nil, ErrMalformed
+		}
 	}
 	ver, ok := claims["ver"].(int64)
 	if !ok || ver != 1 {

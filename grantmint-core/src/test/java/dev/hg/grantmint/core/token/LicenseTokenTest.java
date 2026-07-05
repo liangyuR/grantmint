@@ -304,6 +304,64 @@ class LicenseTokenTest {
     }
 
     @Test
+    void emptyRequiredStringClaimIsMalformed() {
+        // The claim table requires the identifying string claims to be non-empty. A validly-signed
+        // token with prd="" must be MALFORMED — every verifier implementation rejects it, so the
+        // reference must never accept it (cross-verifier parity).
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}";
+        String payloadJson = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"\",\"pol\":\"po\","
+                + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + IAT + ",\"exp\":" + EXP + ",\"ent\":{}}";
+        String token = signRawJson(headerJson, payloadJson);
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
+    void emptyHolderFieldIsMalformed() {
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}";
+        String payloadJson = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"p\",\"pol\":\"po\","
+                + "\"hld\":{\"n\":\"n\",\"e\":\"\"},\"iat\":" + IAT + ",\"exp\":" + EXP + ",\"ent\":{}}";
+        String token = signRawJson(headerJson, payloadJson);
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
+    void missingOrWrongTypedEntClaimIsMalformed() {
+        // ent is required and must be an object — a token without it (or with ent=42) was silently
+        // read as an empty entitlement set before the full-surface audit; now it is MALFORMED, in
+        // agreement with the starter/Swift/Go verifiers.
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}";
+        String withoutEnt = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"p\",\"pol\":\"po\","
+                + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + IAT + ",\"exp\":" + EXP + "}";
+        String numericEnt = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"p\",\"pol\":\"po\","
+                + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + IAT + ",\"exp\":" + EXP + ",\"ent\":42}";
+
+        for (String payloadJson : new String[] {withoutEnt, numericEnt}) {
+            VerificationResult result = LicenseVerifier.verifyAt(
+                    signRawJson(headerJson, payloadJson), keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+            assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+        }
+    }
+
+    @Test
+    void wrongTypedConClaimIsMalformed() {
+        // con is optional, but when present it must be an object — never silently dropped.
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}";
+        String payloadJson = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"p\",\"pol\":\"po\","
+                + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + IAT + ",\"exp\":" + EXP + ",\"ent\":{},\"con\":7}";
+        String token = signRawJson(headerJson, payloadJson);
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
     void paddedSegmentIsMalformed() {
         // Padding is outside the wire contract; a '='-padded segment must be rejected, not tolerated.
         String[] segments = issuer.sign(proLicense()).split("\\.");
