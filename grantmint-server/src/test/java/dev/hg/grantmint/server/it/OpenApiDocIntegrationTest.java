@@ -13,11 +13,11 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 /**
  * Verifies the OpenAPI surface is actually wired: springdoc generates the document from the
  * controllers, the {@link dev.hg.grantmint.server.api.OpenApiConfig} metadata (title + the three
- * security schemes) is present, and the doc/UI endpoints are reachable under the default access policy
- * ({@code grantmint.openapi.access=public}). The admin-locked-down variant is covered by
- * {@link OpenApiDocsAdminAccessTest}.
+ * security schemes) is present, and the doc/UI endpoints are reachable under the opt-in
+ * {@code grantmint.openapi.access=public} policy. The shipped default is {@code admin} — that
+ * locked-down variant is covered by {@link OpenApiDocsAdminAccessTest}.
  */
-@SpringBootTest
+@SpringBootTest(properties = "grantmint.openapi.access=public")
 @AutoConfigureMockMvc
 class OpenApiDocIntegrationTest extends PostgresIntegrationTest {
 

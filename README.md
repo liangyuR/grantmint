@@ -158,8 +158,9 @@ docker compose up -d
 #    The server writes the public key to ./keys/ed25519.pub for client embedding.
 docker compose exec grantmint grantmint keys generate --out /keys
 
-# 3. The server is now at http://localhost:8080  (Swagger UI at /swagger-ui.html)
-curl -s http://localhost:8080/actuator/health
+# 3. The server is now at http://localhost:8080. Swagger UI (/swagger-ui) requires an
+#    admin session by default — set GRANTMINT_OPENAPI_ACCESS=public for open docs in dev.
+curl -s http://127.0.0.1:9090/actuator/health
 # {"status":"UP"}
 ```
 

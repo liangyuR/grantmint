@@ -55,10 +55,11 @@ management:
 
 grantmint:
   # OpenAPI doc (/v3/api-docs) + Swagger UI (/swagger-ui) access policy. These sit outside the three
-  # functional auth chains. Default is public (the document exposes only the API shape, no secrets);
-  # set to `admin` to require an admin session, or `disabled` to stop serving them, in production.
+  # functional auth chains. The document exposes only the API shape (no secrets), but the hardened
+  # default is `admin` (require an admin session) — set `public` for open docs in local dev, or
+  # `disabled` to stop serving them entirely.
   openapi:
-    access: public
+    access: admin
   validation:
     rate-limit:
       # Reverse proxies whose X-Forwarded-For may be trusted to carry the real client IP, as CIDRs
