@@ -59,7 +59,9 @@ class VerifyCommandTest {
     }
 
     @Test
-    void expiredTokenExitsOne() {
+    void expiredTokenExitsThree() {
+        // Exit codes are per failure class (GRANTMINT-147): expired is 3, so a script can tell an
+        // authentic-but-lapsed license apart from a forged one without parsing stdout.
         KeyPair keyPair = Ed25519Keys.generate(new SecureRandom());
         String publicKeyBase64 = publicKeyBase64Of(keyPair);
         long past = nowSeconds() - 10_000;
@@ -68,8 +70,37 @@ class VerifyCommandTest {
         int exitCode = new CommandLine(new GrantmintCli())
                 .execute("verify", "--token", token, "--public-key", publicKeyBase64);
 
-        assertThat(exitCode).isEqualTo(1);
+        assertThat(exitCode).isEqualTo(3);
         assertThat(out.toString(StandardCharsets.UTF_8)).contains("INVALID").contains("EXPIRED");
+    }
+
+    @Test
+    void notYetValidTokenExitsFour() {
+        KeyPair keyPair = Ed25519Keys.generate(new SecureRandom());
+        String publicKeyBase64 = publicKeyBase64Of(keyPair);
+        String token = issueWithNbf(keyPair, nowSeconds(), nowSeconds() + 5_000, nowSeconds() + 10_000);
+
+        int exitCode = new CommandLine(new GrantmintCli())
+                .execute("verify", "--token", token, "--public-key", publicKeyBase64);
+
+        assertThat(exitCode).isEqualTo(4);
+        assertThat(out.toString(StandardCharsets.UTF_8)).contains("NOT_YET_VALID");
+    }
+
+    @Test
+    void wrongProductExitsFiveAndOnlyWhenBindingIsRequested() {
+        KeyPair keyPair = Ed25519Keys.generate(new SecureRandom());
+        String publicKeyBase64 = publicKeyBase64Of(keyPair);
+        String token = issue(keyPair, nowSeconds(), nowSeconds() + 3_600, EntitlementSet.empty());
+
+        int bound = new CommandLine(new GrantmintCli())
+                .execute("verify", "--token", token, "--public-key", publicKeyBase64, "--product", "other-app");
+        assertThat(bound).isEqualTo(5);
+        assertThat(out.toString(StandardCharsets.UTF_8)).contains("WRONG_PRODUCT");
+
+        int rightProduct = new CommandLine(new GrantmintCli())
+                .execute("verify", "--token", token, "--public-key", publicKeyBase64, "--product", "acme-desktop");
+        assertThat(rightProduct).isZero();
     }
 
     @Test
@@ -120,6 +151,15 @@ class VerifyCommandTest {
     }
 
     private static String issue(KeyPair keyPair, long issuedAt, long expiresAt, EntitlementSet entitlements) {
+        return issueWithNbf(keyPair, issuedAt, null, expiresAt, entitlements);
+    }
+
+    private static String issueWithNbf(KeyPair keyPair, long issuedAt, long notBefore, long expiresAt) {
+        return issueWithNbf(keyPair, issuedAt, (Long) notBefore, expiresAt, EntitlementSet.empty());
+    }
+
+    private static String issueWithNbf(
+            KeyPair keyPair, long issuedAt, Long notBefore, long expiresAt, EntitlementSet entitlements) {
         Ed25519Signer signer = new Ed25519Signer(keyPair.getPrivate(), "sk_test_1");
         LicenseTokenIssuer issuer = new LicenseTokenIssuer(signer);
         TokenPayload payload = new TokenPayload(
@@ -130,7 +170,7 @@ class VerifyCommandTest {
                 "pro-annual",
                 new Holder("Ada Lovelace", "ada@example.com"),
                 issuedAt,
-                null,
+                notBefore,
                 expiresAt,
                 entitlements,
                 null,

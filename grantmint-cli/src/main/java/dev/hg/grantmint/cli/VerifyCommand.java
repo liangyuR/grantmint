@@ -2,6 +2,7 @@ package dev.hg.grantmint.cli;
 
 import dev.hg.grantmint.core.crypto.Ed25519Keys;
 import dev.hg.grantmint.core.time.Clock;
+import dev.hg.grantmint.core.token.FailureReason;
 import dev.hg.grantmint.core.token.LicenseVerifier;
 import dev.hg.grantmint.core.token.TokenHeader;
 import dev.hg.grantmint.core.token.TokenPayload;
@@ -20,10 +21,27 @@ import picocli.CommandLine.Option;
  * key. No network call is made; this is the client-side correctness boundary described in
  * docs/features/LICENSE_TOKEN_FORMAT.md.
  *
- * <p>Exit codes: {@code 0} valid, {@code 1} invalid (signature/expiry/type/etc. rejection), {@code
- * 2} usage error (unreadable token file, undecodable public key).
+ * <p>Exit codes are scriptable per failure class (2026-07-05 audit, GRANTMINT-147 — every rejection
+ * used to collapse to 1, so a script could not tell EXPIRED from FORGED without parsing stdout):
+ * {@code 0} valid; {@code 1} untrustworthy credential (malformed, forged, wrong scheme or type);
+ * {@code 2} usage error (unreadable token file, undecodable public key); {@code 3} expired; {@code
+ * 4} not yet valid; {@code 5} wrong product; {@code 6} unsupported token format version. Nonzero
+ * always means "do not accept"; codes ≥3 are authentic credentials refused for a stated reason.
  */
-@Command(name = "verify", description = "Verify a license token offline against a public key. No network call.")
+@Command(
+        name = "verify",
+        description = "Verify a license token offline against a public key. No network call.",
+        footer = {
+            "",
+            "Exit codes:",
+            "  0  valid",
+            "  1  untrustworthy credential (malformed, forged, wrong scheme/type)",
+            "  2  usage error",
+            "  3  expired",
+            "  4  not yet valid",
+            "  5  wrong product (only with --product)",
+            "  6  unsupported token format version"
+        })
 public final class VerifyCommand implements Callable<Integer> {
 
     @Option(
@@ -37,6 +55,12 @@ public final class VerifyCommand implements Callable<Integer> {
             required = true,
             description = "The Ed25519 public key, standard base64 (the raw 32-byte RFC 8032 encoding).")
     String publicKeyArg;
+
+    @Option(
+            names = {"--product"},
+            description = "Expected product slug; the token's prd claim must equal it (exit 5 otherwise). "
+                    + "Omit to skip product binding.")
+    String productArg;
 
     @Override
     public Integer call() {
@@ -57,14 +81,29 @@ public final class VerifyCommand implements Callable<Integer> {
             return 2;
         }
 
-        VerificationResult result = LicenseVerifier.verifyAt(token, publicKey, Clock.system());
+        VerificationResult result = LicenseVerifier.verifyAt(token, publicKey, Clock.system(), productArg);
         if (!result.valid()) {
             System.out.println("INVALID: " + result.reason());
-            return 1;
+            return exitCodeFor(result.reason());
         }
 
         printClaims(result.header(), result.payload());
         return 0;
+    }
+
+    /**
+     * The documented per-class exit codes (see the command footer). The untrustworthy reasons share
+     * {@code 1} deliberately: which structural defect a forged token exhibits is not actionable for
+     * a script, while expired / not-yet-valid / wrong-product / unsupported-version each are.
+     */
+    private static int exitCodeFor(FailureReason reason) {
+        return switch (reason) {
+            case MALFORMED, ALG_NOT_ALLOWED, WRONG_TYPE, FORGED -> 1;
+            case EXPIRED -> 3;
+            case NOT_YET_VALID -> 4;
+            case WRONG_PRODUCT -> 5;
+            case UNSUPPORTED_VERSION -> 6;
+        };
     }
 
     private static void printClaims(TokenHeader header, TokenPayload payload) {
