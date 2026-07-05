@@ -109,18 +109,45 @@ public class AdminAuthController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Change the calling operator's password (re-hashed with Argon2id). */
+    /**
+     * Change the calling operator's password (re-hashed with Argon2id). Requires re-entering the
+     * current password — a session token alone must not be able to rotate the credential, or a
+     * hijacked/XSS'd session could lock the real operator out (M13 audit hardening). On success
+     * every live session is revoked, the standard consequence of credential rotation: whoever
+     * holds the new password logs back in; whoever merely held a session token is out.
+     */
     @PostMapping("/password")
-    @Operation(summary = "Change the current operator's password")
+    @Operation(
+            summary = "Change the current operator's password",
+            description = "Requires the current password; revokes all sessions on success — log in again.")
     @SecurityRequirement(name = OpenApiConfig.ADMIN_SESSION)
     ResponseEntity<Void> changePassword(
-            @AuthenticationPrincipal AdminPrincipal principal, @RequestBody ChangePasswordRequest request) {
+            @AuthenticationPrincipal AdminPrincipal principal,
+            @RequestBody ChangePasswordRequest request,
+            HttpServletRequest httpRequest) {
         String newPassword = request.newPassword();
         if (newPassword == null || newPassword.length() < MIN_PASSWORD_LENGTH) {
             throw new IllegalArgumentException("Password must be at least " + MIN_PASSWORD_LENGTH + " characters.");
         }
+        if (request.currentPassword() == null
+                || adminUsers
+                        .authenticate(principal.username(), request.currentPassword())
+                        .isEmpty()) {
+            throw new BadCredentialsException("Current password is incorrect.");
+        }
         adminUsers.changePassword(principal.adminUserId(), newPassword);
-        return ResponseEntity.noContent().build();
+        sessions.logoutAll(principal.adminUserId());
+        audit.record(
+                principal.username(),
+                AuditActorType.ADMIN,
+                "admin.password_changed",
+                "admin_user",
+                principal.username(),
+                Map.of(),
+                httpRequest.getRemoteAddr());
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, sessionCookie("", Duration.ZERO))
+                .build();
     }
 
     /** The session cookie: HttpOnly (JS never reads it) + SameSite=Strict (login-CSRF defence). */
@@ -138,8 +165,11 @@ public class AdminAuthController {
     /** @param username the operator's username @param password the plaintext password */
     public record LoginRequest(String username, String password) {}
 
-    /** @param newPassword the replacement plaintext password */
-    public record ChangePasswordRequest(String newPassword) {}
+    /**
+     * @param currentPassword the operator's current password — proof of credential, not just session
+     * @param newPassword the replacement plaintext password
+     */
+    public record ChangePasswordRequest(String currentPassword, String newPassword) {}
 
     /**
      * @param token the opaque {@code gm_sess_…} session token, shown once

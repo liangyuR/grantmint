@@ -126,7 +126,9 @@ class SigningKeyAdminIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.productId").value(productId.toString()))
                 .andExpect(jsonPath("$.algorithm").value("Ed25519"))
                 .andExpect(jsonPath("$.publicKey").value(publicKeyB64))
-                .andExpect(jsonPath("$.privateKeyRef").value(ref))
+                // The ref is redacted to its scheme: the full pointer is secret-store topology
+                // (paths, secret ids, env var names) with no need to be re-readable over HTTP.
+                .andExpect(jsonPath("$.privateKeyRef").value("file:***"))
                 .andExpect(jsonPath("$.status").value("active"))
                 .andReturn();
         // Note: createdAt is populated by Hibernate's @CreationTimestamp at flush time, so it is
@@ -134,7 +136,8 @@ class SigningKeyAdminIntegrationTest extends PostgresIntegrationTest {
         // (see Product's createdAt, which exhibits the same behavior); the JSON shape still carries
         // the field.
         assertThat(registerResult.getResponse().getContentAsString())
-                .doesNotContain(HexFormat.of().formatHex(seed));
+                .doesNotContain(HexFormat.of().formatHex(seed))
+                .doesNotContain(ref.substring("file:".length())); // the seed file's path never leaves
 
         // makeActive:true flips the product's active signing key.
         Product product = productRepo.findById(productId).orElseThrow();

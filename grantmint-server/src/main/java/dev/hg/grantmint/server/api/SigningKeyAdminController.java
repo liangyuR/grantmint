@@ -100,7 +100,12 @@ public class SigningKeyAdminController {
      */
     public record RegisterSigningKeyRequest(String keyId, String privateKeyRef, String publicKey, boolean makeActive) {}
 
-    /** Metadata view of a signing key — public key only, never private bytes. */
+    /**
+     * Metadata view of a signing key — public key only, never private bytes, and the {@code
+     * private_key_ref} redacted to its scheme. The full ref is secret-store topology (a Vault path,
+     * an AWS/GCP secret id, an env var name) an admin session has no operational need to re-read;
+     * the operator who registered it knows it, and it stays queryable at the database level.
+     */
     public record SigningKeyView(
             String keyId,
             UUID productId,
@@ -116,9 +121,18 @@ public class SigningKeyAdminController {
                     key.getProduct().getId(),
                     key.getAlgorithm(),
                     Base64.getEncoder().encodeToString(key.getPublicKey()),
-                    key.getPrivateKeyRef(),
+                    redactRef(key.getPrivateKeyRef()),
                     key.getStatus(),
                     key.getCreatedAt());
+        }
+
+        /** {@code vault:secret/data/acme#seed} → {@code vault:***} — scheme only, never the path. */
+        static String redactRef(String ref) {
+            if (ref == null) {
+                return null;
+            }
+            int colon = ref.indexOf(':');
+            return colon <= 0 ? "***" : ref.substring(0, colon) + ":***";
         }
     }
 }
