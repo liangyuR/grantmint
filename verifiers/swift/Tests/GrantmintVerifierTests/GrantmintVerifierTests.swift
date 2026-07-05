@@ -158,6 +158,14 @@ final class GrantmintVerifierTests: XCTestCase {
             ),
             ("con not an object", #"{"con":7,"exp":null,"# + requiredTail + #","ver":1}"#),
             ("seat not an integer", #"{"exp":null,"# + requiredTail + #","seat":"two","ver":1}"#),
+            // seat is an int in the claim table; the reference parses it with Math.toIntExact, so
+            // an int64 outside the 32-bit range is malformed there and must be malformed here too —
+            // the M13 audit's surviving 3-vs-1 parity split.
+            ("seat beyond int32", #"{"exp":null,"# + requiredTail + #","seat":5000000000,"ver":1}"#),
+            (
+                "seat beyond negative int32",
+                #"{"exp":null,"# + requiredTail + #","seat":-5000000000,"ver":1}"#
+            ),
             ("trailing content", #"{"exp":null,"# + requiredTail + #","ver":1} {}"#),
         ]
         for (name, payloadJSON) in cases {

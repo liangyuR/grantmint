@@ -170,7 +170,7 @@ public final class OfflineTokenVerifier {
                 throw malformed("entitlement values must be a boolean flag, integer limit, or string");
             }
         }
-        Long seat = optionalEpoch(claims, "seat");
+        Integer seat = optionalInt(claims, "seat");
         Map<String, Object> constraints = optionalObject(claims, "con");
 
         // Format-version gate — the structure is sound, but refuse to interpret a layout this
@@ -206,6 +206,23 @@ public final class OfflineTokenVerifier {
                 entitlements,
                 seat,
                 constraints);
+    }
+
+    /**
+     * An optional int-domain claim: the spec types {@code seat} as a plain int (not an epoch
+     * second), and the reference parses it with {@code Math.toIntExact} — so a value outside the
+     * 32-bit range is malformed here exactly as it is there, never silently widened. Same rationale
+     * as the {@code ver} gate above.
+     */
+    private static Integer optionalInt(Map<String, Object> claims, String key) {
+        Long value = optionalEpoch(claims, key);
+        if (value == null) {
+            return null;
+        }
+        if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+            throw malformed(key + " must fit a 32-bit integer");
+        }
+        return value.intValue();
     }
 
     private static Long optionalEpoch(Map<String, Object> claims, String key) {

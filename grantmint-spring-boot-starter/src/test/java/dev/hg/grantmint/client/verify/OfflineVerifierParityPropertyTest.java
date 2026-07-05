@@ -13,6 +13,7 @@ import dev.hg.grantmint.core.token.LicenseTokenIssuer;
 import dev.hg.grantmint.core.token.LicenseVerifier;
 import dev.hg.grantmint.core.token.TokenPayload;
 import dev.hg.grantmint.core.token.VerificationResult;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -81,7 +82,7 @@ class OfflineVerifierParityPropertyTest {
             VerifiedToken verified = starter.verifyAt(token, NOW);
             assertThat(verified.keyId()).isEqualTo("K7P2-9QXM-4T1A");
             assertThat(verified.product()).isEqualTo("acme-notes");
-            assertThat(verified.seatLimit()).isEqualTo((long) seat);
+            assertThat(verified.seatLimit()).isEqualTo(seat);
             assertThat(verified.expiresAt()).isEqualTo(exp == null ? null : Instant.ofEpochSecond(exp));
             assertThat(verified.entitlements())
                     .isEqualTo(EntitlementSet.of(entitlements).encode());
@@ -99,6 +100,40 @@ class OfflineVerifierParityPropertyTest {
                     // Any other refusal must at least not be temporal disagreement.
                 }
             }
+        }
+    }
+
+    /**
+     * The M13 audit's surviving parity split: a validly-signed {@code seat} beyond the 32-bit range
+     * is MALFORMED for the reference ({@code Math.toIntExact} in the claim parse), so the starter
+     * must reject the same bytes — it used to silently widen them to long and accept, a 3-vs-1
+     * verdict split across the four offline verifiers.
+     */
+    @Example
+    void seatBeyondIntRangeIsRejectedByBothImplementations() {
+        KeyPair keys = Ed25519Keys.generate(RNG);
+        Ed25519Signer signer = new Ed25519Signer(keys.getPrivate(), "GMK1");
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"GMK1\",\"crv\":\"Ed25519\"}";
+        for (long seat : new long[] {5_000_000_000L, -5_000_000_000L}) {
+            String payloadJson = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"K\",\"prd\":\"p\",\"pol\":\"po\","
+                    + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + NOW.getEpochSecond() + ",\"exp\":null,"
+                    + "\"ent\":{},\"seat\":" + seat + "}";
+            Base64.Encoder b64 = Base64.getUrlEncoder().withoutPadding();
+            String headerSeg = b64.encodeToString(headerJson.getBytes(StandardCharsets.UTF_8));
+            String payloadSeg = b64.encodeToString(payloadJson.getBytes(StandardCharsets.UTF_8));
+            byte[] sig = signer.sign((headerSeg + "." + payloadSeg).getBytes(StandardCharsets.US_ASCII));
+            String token = headerSeg + "." + payloadSeg + "." + b64.encodeToString(sig);
+
+            VerificationResult reference =
+                    LicenseVerifier.verifyAt(token, keys.getPublic(), dev.hg.grantmint.core.time.Clock.fixed(NOW));
+            assertThat(reference.reason()).isEqualTo(dev.hg.grantmint.core.token.FailureReason.MALFORMED);
+
+            OfflineTokenVerifier starter = new OfflineTokenVerifier(
+                    Base64.getEncoder().encodeToString(Ed25519Keys.encodePublicKey(keys.getPublic())));
+            assertThatThrownBy(() -> starter.verifyAt(token, NOW))
+                    .isInstanceOf(TokenVerificationException.class)
+                    .satisfies(e -> assertThat(((TokenVerificationException) e).reason())
+                            .isEqualTo(TokenVerificationException.Reason.MALFORMED));
         }
     }
 

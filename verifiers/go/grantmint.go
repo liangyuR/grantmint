@@ -17,8 +17,8 @@
 //   - strict payload parse: duplicate object keys are malformed, numbers are integers only
 //     within int64; ver must equal 1; lid/kid/prd/pol non-empty strings, hld an object with
 //     non-empty string n/e, iat an integer, and ent an object are all required; con (object)
-//     and seat (integer) are optional but never wrong-typed; exp is a required key whose
-//     value may be null (perpetual);
+//     and seat (an integer within int32, matching the reference's int parse) are optional but
+//     never wrong-typed; exp is a required key whose value may be null (perpetual);
 //   - now >= exp is expired (exp exclusive); now < nbf is not yet valid (nbf optional).
 package grantmint
 
@@ -29,6 +29,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 )
 
@@ -143,7 +144,11 @@ func Verify(token, publicKeyHex string, now int64) (map[string]any, error) {
 		}
 	}
 	if seatRaw, present := claims["seat"]; present && seatRaw != nil {
-		if _, ok := seatRaw.(int64); !ok {
+		// seat is a plain int in the spec's claim table, and the reference parses it with
+		// Math.toIntExact — an int64 beyond the 32-bit range is malformed there, so it must
+		// be malformed here too, never silently widened.
+		seat, ok := seatRaw.(int64)
+		if !ok || seat < math.MinInt32 || seat > math.MaxInt32 {
 			return nil, ErrMalformed
 		}
 	}

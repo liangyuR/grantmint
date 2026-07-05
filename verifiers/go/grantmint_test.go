@@ -147,6 +147,15 @@ func TestValidlySignedButNonStrictPayloadsAreMalformed(t *testing.T) {
 		"empty holder email":  `{"ent":{},"exp":null,"hld":{"e":"","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}`,
 		"con not an object":   `{"con":7,"exp":null,` + requiredTail + `,"ver":1}`,
 		"seat not an integer": `{"exp":null,` + requiredTail + `,"seat":"two","ver":1}`,
+		// seat is an int in the claim table; the reference parses it with Math.toIntExact, so an
+		// int64 outside the 32-bit range is malformed there and must be malformed here too — the
+		// M13 audit's surviving 3-vs-1 parity split.
+		"seat beyond int32":          `{"exp":null,` + requiredTail + `,"seat":5000000000,"ver":1}`,
+		"seat beyond negative int32": `{"exp":null,` + requiredTail + `,"seat":-5000000000,"ver":1}`,
+		// Adversarial shapes the Swift suite pins that Go is structurally immune to (encoding/json
+		// yields distinct types) — pinned anyway so the four suites assert the same vectors.
+		"boolean ver":     `{"exp":null,` + requiredTail + `,"ver":true}`,
+		"ent array value": `{"ent":{"tier":[1,2]},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}`,
 	}
 	for name, payloadJSON := range cases {
 		token := signRaw(t, pinnedHeaderJSON, payloadJSON)

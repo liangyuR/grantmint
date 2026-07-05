@@ -83,8 +83,7 @@ public func verifyLicense(_ token: String, publicKeyBase64: String, now: Int64) 
     //    non-blank keys. Absence, a wrong type, or an empty required string is malformed, exactly
     //    like the Java, Go, and starter verifiers.
     guard StrictJSONScan.isStrictObject(payloadData),
-        let obj = (try? JSONSerialization.jsonObject(with: payloadData)) as? [String: Any],
-        try integerClaim(obj["ver"]) == 1
+        let obj = (try? JSONSerialization.jsonObject(with: payloadData)) as? [String: Any]
     else { throw LicenseError.malformed }
     guard let kid = nonEmptyString(obj["kid"]),
         let lid = nonEmptyString(obj["lid"]),
@@ -107,10 +106,21 @@ public func verifyLicense(_ token: String, publicKeyBase64: String, now: Int64) 
     guard obj.keys.contains("exp") else { throw LicenseError.malformed }
     let exp = try integerClaim(obj["exp"])  // nil when the value is JSON null (perpetual)
     let nbf = try integerClaim(obj["nbf"])
-    _ = try integerClaim(obj["seat"])  // accept/reject parity; seat is not surfaced in VerifiedLicense
+    // seat is a plain int in the spec's claim table, and the reference parses it with
+    // Math.toIntExact — a value beyond the 32-bit range is malformed there, so it must be
+    // malformed here too, never silently widened. (seat is not surfaced in VerifiedLicense;
+    // this check exists purely for accept/reject parity.)
+    if let seat = try integerClaim(obj["seat"]), seat < Int64(Int32.min) || seat > Int64(Int32.max) {
+        throw LicenseError.malformed
+    }
     if let conRaw = obj["con"], !(conRaw is NSNull), !(conRaw is [String: Any]) {
         throw LicenseError.malformed
     }
+
+    // Format-version gate — after the claim table, before the temporal window, the same position
+    // as the reference, starter, and Go verifiers (unobservable through the collapsed error
+    // taxonomy, but kept aligned so the four sources read as one decision procedure).
+    guard try integerClaim(obj["ver"]) == 1 else { throw LicenseError.malformed }
 
     // 5) Temporal window: nbf inclusive, exp exclusive.
     if let nbf, now < nbf { throw LicenseError.notYetValid }

@@ -331,6 +331,25 @@ class LicenseTokenTest {
     }
 
     @Test
+    void seatBeyondIntRangeIsMalformed() {
+        // seat is a plain int in the claim table, parsed with Math.toIntExact. A validly-signed
+        // token whose seat exceeds the 32-bit range must be MALFORMED — here AND in the starter,
+        // Go, and Swift verifiers. The M13 audit caught the other three silently widening it while
+        // the reference rejected: a 3-vs-1 verdict split on the same bytes (cross-verifier parity).
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}";
+        for (long seat : new long[] {5_000_000_000L, -5_000_000_000L}) {
+            String payloadJson = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"p\",\"pol\":\"po\","
+                    + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + IAT + ",\"exp\":" + EXP + ",\"ent\":{},"
+                    + "\"seat\":" + seat + "}";
+            String token = signRawJson(headerJson, payloadJson);
+
+            VerificationResult result =
+                    LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+            assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+        }
+    }
+
+    @Test
     void missingOrWrongTypedEntClaimIsMalformed() {
         // ent is required and must be an object — a token without it (or with ent=42) was silently
         // read as an empty entitlement set before the full-surface audit; now it is MALFORMED, in

@@ -17,7 +17,7 @@ import java.util.Map;
  * @param notBefore {@code nbf}, null when the token is valid immediately
  * @param expiresAt {@code exp}; null means perpetual — the claim was present with a null value
  * @param entitlements the decoded {@code ent} claim (flags, limits, strings)
- * @param seatLimit the {@code seat} claim
+ * @param seatLimit the {@code seat} claim — an int on the wire, like the reference's model
  * @param constraints the free-form {@code con} claim
  */
 public record VerifiedToken(
@@ -31,7 +31,7 @@ public record VerifiedToken(
         Instant notBefore,
         Instant expiresAt,
         Map<String, Object> entitlements,
-        Long seatLimit,
+        Integer seatLimit,
         Map<String, Object> constraints) {
 
     public VerifiedToken {
