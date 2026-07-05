@@ -217,7 +217,8 @@ function IssueLicenseForm({ onIssued }: { onIssued: () => void }) {
       .get<Product[]>('/admin/products')
       .then((data) => {
         setProducts(data);
-        if (data.length > 0) setForm((f) => ({ ...f, productId: data[0].id }));
+        const first = data[0];
+        if (first) setForm((f) => ({ ...f, productId: first.id }));
       })
       .catch(() => setError('Failed to load products.'));
   }, []);

@@ -49,7 +49,8 @@ export default function PoliciesPage() {
       .get<Product[]>('/admin/products')
       .then((data) => {
         setProducts(data);
-        if (data.length > 0) setProductId(data[0].id);
+        const first = data[0];
+        if (first) setProductId(first.id);
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : 'Failed to load products.'));
   }, []);

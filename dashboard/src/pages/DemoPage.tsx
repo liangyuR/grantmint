@@ -267,6 +267,11 @@ export default function DemoPage() {
             )
           }
         >
+          <p className="text-xs text-gray-500">
+            This in-browser verifier enforces the same strict wire contract as the shipped SDK
+            verifiers (header pinning, strict JSON, the full claim table) — but it is illustrative
+            for this demo page, not the SDK itself. Use the starter/CLI/SDKs for real integrations.
+          </p>
           <OfflineResult state={offlineBefore} />
         </StepCard>
 
@@ -425,7 +430,8 @@ function SetupPanel({
       .get<Product[]>('/admin/products')
       .then((data) => {
         setProducts(data);
-        if (data.length > 0) setProductId(data[0].id);
+        const first = data[0];
+        if (first) setProductId(first.id);
       })
       .catch(() => setIssueError('Failed to load products.'));
   }, [showIssue]);

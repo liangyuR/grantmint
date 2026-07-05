@@ -2,7 +2,12 @@
  * Pins the browser demo verifier to the cross-verifier golden vector
  * (docs/testing/CROSS_VERIFIER_FIXTURES.md) — the same token the Java/Swift/Go suites verify —
  * and to the wire-strictness rules it shares with the real SDK verifiers: strict unpadded
- * base64url, the alg/crv/typ header pin before any signature work, and the ver gate.
+ * base64url, the alg/crv/typ header pin before any signature work, the ver gate, and (new) the
+ * FULL claim table plus a hand-rolled strict JSON parser (duplicate keys and non-integer/oversized
+ * numbers rejected) — see grantmint-spring-boot-starter's StrictJson.java / OfflineTokenVerifier.java
+ * and verifiers/go/grantmint_test.go's TestValidlySignedButNonStrictPayloadsAreMalformed, whose
+ * adversarial vectors are ported below so the dashboard's demo verifier stays parity-honest with
+ * the shipped SDKs.
  *
  * Runs under Node's WebCrypto (Ed25519 supported since Node 20); vitest's default environment
  * provides `crypto`, `atob`, `TextEncoder`, and `TextDecoder`.
@@ -25,12 +30,43 @@ const BASE64URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 
 function segments(): [string, string, string] {
   const [h, p, s] = TOKEN.split('.');
+  if (h === undefined || p === undefined || s === undefined) {
+    throw new Error('fixture token must have 3 segments');
+  }
   return [h, p, s];
 }
 
 function b64url(json: string): string {
   return Buffer.from(json, 'utf8').toString('base64url');
 }
+
+// ─── Test-side signer: WebCrypto Ed25519 over the raw fixture seed ────────────────────────────
+//
+// The same seed the Go/Swift parity suites embed (verifiers/go/grantmint_test.go's
+// fixtureSeedHex) — reproduces the exact fixture public key above. WebCrypto's Ed25519 "raw"
+// import format is verify-only for a public key; signing needs the seed wrapped in a minimal
+// PKCS8 DER envelope (RFC 8410's fixed prefix for a 32-byte Ed25519 seed).
+const FIXTURE_SEED_HEX = '52ec811207633ad9f4a283d8eb887630e6183f7b6dfa8ea02fc4b9f9c7438aec'; // gitleaks:allow — published golden vector seed, not a credential
+const PKCS8_ED25519_SEED_PREFIX_HEX = '302e020100300506032b657004220420';
+
+async function signRaw(headerJson: string, payloadJson: string): Promise<string> {
+  const pkcs8 = Buffer.concat([
+    Buffer.from(PKCS8_ED25519_SEED_PREFIX_HEX, 'hex'),
+    Buffer.from(FIXTURE_SEED_HEX, 'hex'),
+  ]);
+  const key = await crypto.subtle.importKey('pkcs8', pkcs8, { name: 'Ed25519' }, false, ['sign']);
+  const headerSeg = b64url(headerJson);
+  const payloadSeg = b64url(payloadJson);
+  const signingInput = new TextEncoder().encode(`${headerSeg}.${payloadSeg}`);
+  const signature = await crypto.subtle.sign('Ed25519', key, signingInput);
+  const sigSeg = Buffer.from(signature).toString('base64url');
+  return `${headerSeg}.${payloadSeg}.${sigSeg}`;
+}
+
+const PINNED_HEADER_JSON = '{"alg":"EdDSA","crv":"Ed25519","kid":"GMK1","typ":"GMT"}';
+// requiredTail carries every required claim except exp and ver, so each adversarial case below
+// isolates exactly one defect (mirrors the Go/Swift/starter parity suites).
+const REQUIRED_TAIL = '"ent":{},"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p"';
 
 describe('verifyTokenOffline', () => {
   it('verifies the pinned cross-verifier vector with its exact claims', async () => {
@@ -71,7 +107,7 @@ describe('verifyTokenOffline', () => {
     // The 86-char signature leaves 4 unused trailing bits: 15 alternate spellings decode to the
     // SAME bytes. One text form per byte string — all 15 must be malformed.
     const last = TOKEN[TOKEN.length - 1];
-    const value = BASE64URL_ALPHABET.indexOf(last);
+    const value = BASE64URL_ALPHABET.indexOf(last ?? '');
     expect(value % 16).toBe(0);
     for (let bits = 1; bits <= 15; bits += 1) {
       const spelled = TOKEN.slice(0, -1) + BASE64URL_ALPHABET[value | bits];
@@ -96,14 +132,6 @@ describe('verifyTokenOffline', () => {
     );
   });
 
-  it('fails closed on an unknown format version before the signature', async () => {
-    const [h, , s] = segments();
-    const versionTwo = b64url('{"exp":null,"ver":2}');
-    await expect(verifyTokenOffline(`${h}.${versionTwo}.${s}`, PUBLIC_KEY_BASE64, IAT)).rejects.toThrow(
-      TokenFormatError,
-    );
-  });
-
   it('reports signatureValid=false for a substituted payload', async () => {
     const [h, , s] = segments();
     const forged = b64url('{"exp":null,"ver":1}');
@@ -116,5 +144,78 @@ describe('verifyTokenOffline', () => {
     await expect(verifyTokenOffline(`${TOKEN}.extra`, PUBLIC_KEY_BASE64, IAT)).rejects.toThrow(
       TokenFormatError,
     );
+  });
+
+  // ─── Validly-signed but non-strict payloads: parity with Go's
+  // TestValidlySignedButNonStrictPayloadsAreMalformed (including the seat-beyond-int32,
+  // boolean-ver, and ent-array-value cases added there) ──────────────────────────────────────────
+  //
+  // Every payload below is signed for real with the fixture seed, so the signature check passes —
+  // isolating exactly the claim-table / strict-JSON defect under test. Before this fix, F2/F3 meant
+  // some of these (a string/missing exp, a float, a duplicate key) would have rendered "VALID".
+  describe('rejects validly-signed but non-strict payloads as malformed', () => {
+    const cases: Record<string, string> = {
+      'duplicate key': `{"exp":null,"exp":null,${REQUIRED_TAIL},"ver":1}`,
+      'float exp': `{"exp":1.5,${REQUIRED_TAIL},"ver":1}`,
+      'exponent number': `{"exp":2e9,${REQUIRED_TAIL},"ver":1}`,
+      'oversized integer': `{"exp":99999999999999999999,${REQUIRED_TAIL},"ver":1}`,
+      'string exp': `{"exp":"1782666000",${REQUIRED_TAIL},"ver":1}`,
+      'missing exp': `{${REQUIRED_TAIL},"ver":1}`,
+      'unknown ver': `{"exp":null,${REQUIRED_TAIL},"ver":2}`,
+      'trailing content': `{"exp":null,${REQUIRED_TAIL},"ver":1} {}`,
+      'non-object toplevel': '[1,2,3]',
+      'missing pol/hld/iat': '{"ent":{},"exp":null,"kid":"K","lid":"l","prd":"p","ver":1}',
+      'missing ent': '{"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}',
+      'ent not an object':
+        '{"ent":42,"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}',
+      'empty prd':
+        '{"ent":{},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"","ver":1}',
+      'empty holder email':
+        '{"ent":{},"exp":null,"hld":{"e":"","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}',
+      'con not an object': `{"con":7,"exp":null,${REQUIRED_TAIL},"ver":1}`,
+      'seat not an integer': `{"exp":null,${REQUIRED_TAIL},"seat":"two","ver":1}`,
+      // seat is an int in the claim table; the reference parses it with Math.toIntExact, so an
+      // int64 outside the 32-bit range is malformed there and must be malformed here too.
+      'seat beyond int32': `{"exp":null,${REQUIRED_TAIL},"seat":5000000000,"ver":1}`,
+      'seat beyond negative int32': `{"exp":null,${REQUIRED_TAIL},"seat":-5000000000,"ver":1}`,
+      // Adversarial shapes the Swift suite pins that Go is structurally immune to (encoding/json
+      // yields distinct types) — pinned anyway so every suite asserts the same vectors.
+      'boolean ver': `{"exp":null,${REQUIRED_TAIL},"ver":true}`,
+      'ent array value':
+        '{"ent":{"tier":[1,2]},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}',
+    };
+
+    for (const [name, payloadJson] of Object.entries(cases)) {
+      it(`rejects: ${name}`, async () => {
+        const token = await signRaw(PINNED_HEADER_JSON, payloadJson);
+        await expect(verifyTokenOffline(token, PUBLIC_KEY_BASE64, IAT)).rejects.toThrow(TokenFormatError);
+      });
+    }
+  });
+
+  it('rejects a header missing kid even when validly signed', async () => {
+    // Parity with the starter/Go TestHeaderMissingKidIsMalformed: the reference decodeHeader
+    // requires all four header fields as strings; a validly-signed token whose header drops kid
+    // must be malformed too, not just the tampered-header variant above.
+    const token = await signRaw(
+      '{"alg":"EdDSA","crv":"Ed25519","typ":"GMT"}',
+      `{"exp":null,${REQUIRED_TAIL},"ver":1}`,
+    );
+    await expect(verifyTokenOffline(token, PUBLIC_KEY_BASE64, IAT)).rejects.toThrow(TokenFormatError);
+  });
+
+  it('accepts a validly-signed perpetual (null exp) token far in the future', async () => {
+    const token = await signRaw(PINNED_HEADER_JSON, `{"exp":null,${REQUIRED_TAIL},"ver":1}`);
+    const result = await verifyTokenOffline(token, PUBLIC_KEY_BASE64, 4102444800); // year 2100
+    expect(result.signatureValid).toBe(true);
+    expect(result.expired).toBe(false);
+  });
+
+  it('enforces the nbf gate (inclusive) on a validly-signed token', async () => {
+    const token = await signRaw(PINNED_HEADER_JSON, `{"exp":null,${REQUIRED_TAIL},"nbf":1000,"ver":1}`);
+    const before = await verifyTokenOffline(token, PUBLIC_KEY_BASE64, 999);
+    expect(before.notYetValid).toBe(true);
+    const atNbf = await verifyTokenOffline(token, PUBLIC_KEY_BASE64, 1000);
+    expect(atNbf.notYetValid).toBe(false);
   });
 });
