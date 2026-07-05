@@ -59,4 +59,21 @@
             <artifactId>jqwik</artifactId>
         </dependency>
     </dependencies>
+
+    <build>
+        <resources>
+            <!-- Ship the Apache-2.0 text inside the jar: this artifact is embedded in downstream
+                 (possibly closed-source) apps, so the license must travel with the bytes. -->
+            <resource>
+                <directory>${project.basedir}</directory>
+                <includes>
+                    <include>LICENSE</include>
+                </includes>
+                <targetPath>META-INF</targetPath>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+        </resources>
+    </build>
 </project>
