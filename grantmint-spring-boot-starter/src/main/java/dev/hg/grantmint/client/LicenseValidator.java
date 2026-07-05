@@ -56,17 +56,14 @@ public final class LicenseValidator {
     public LicenseStatus verifyOffline(String token) {
         VerifiedToken verified;
         try {
-            verified = verifier.verify(token);
+            // Product binding happens inside the verifier, between the version gate and the temporal
+            // window — the reference verifier's step order, so an expired token for another product
+            // is WRONG_PRODUCT here exactly as it is there (audit 2026-07-05, GRANTMINT-145).
+            verified = verifier.verify(token, expectedProduct());
         } catch (TokenVerificationException refused) {
-            return LicenseStatus.invalid(reasonOf(refused.reason()), null);
-        }
-        // Product binding: a valid token for someone else's product is not a license for this app.
-        // Reported as WRONG_PRODUCT, not INVALID_SIGNATURE — the credential is authentic, it just
-        // belongs to a different product; callers may want to say so ("this key is for X").
-        if (props.getProduct() != null
-                && !props.getProduct().isBlank()
-                && !props.getProduct().equals(verified.product())) {
-            return LicenseStatus.invalid(LicenseStatus.Reason.WRONG_PRODUCT, verified.keyId());
+            // keyId is non-null only for post-signature refusals (wrong product, expired, not yet
+            // valid, unsupported version) — an authentic credential callers may want to name.
+            return LicenseStatus.invalid(reasonOf(refused.reason()), refused.keyId());
         }
         return new LicenseStatus(
                 true,
@@ -130,16 +127,22 @@ public final class LicenseValidator {
                 true);
     }
 
+    /** The configured product to bind against, or null when the operator configured none. */
+    private String expectedProduct() {
+        String product = props.getProduct();
+        return product == null || product.isBlank() ? null : product;
+    }
+
     private static LicenseStatus.Reason reasonOf(TokenVerificationException.Reason reason) {
         return switch (reason) {
             case EXPIRED -> LicenseStatus.Reason.EXPIRED;
             case NOT_YET_VALID -> LicenseStatus.Reason.NOT_YET_VALID;
-                // WRONG_PRODUCT is reserved on the verifier's taxonomy (it takes no product today —
-                // binding happens above in verifyOffline); mapped here so a future verifier-level
-                // binding surfaces the same way as the validator-level one.
             case WRONG_PRODUCT -> LicenseStatus.Reason.WRONG_PRODUCT;
-            case MALFORMED, ALG_NOT_ALLOWED, WRONG_TYPE, INVALID_SIGNATURE, UNSUPPORTED_VERSION -> LicenseStatus.Reason
-                    .INVALID_SIGNATURE;
+                // Authentic credential, unknown format — distinct so the app can say "update me"
+                // (2026-07-05 audit, GRANTMINT-149). The structural reasons below stay collapsed:
+                // which defect a forged token exhibits is not actionable for an app.
+            case UNSUPPORTED_VERSION -> LicenseStatus.Reason.UNSUPPORTED_VERSION;
+            case MALFORMED, ALG_NOT_ALLOWED, WRONG_TYPE, INVALID_SIGNATURE -> LicenseStatus.Reason.INVALID_SIGNATURE;
         };
     }
 

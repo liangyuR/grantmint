@@ -63,4 +63,48 @@ class LicenseValidatorProductBindingTest {
                         .valid())
                 .isTrue();
     }
+
+    /**
+     * The 2026-07-05 audit's parity failure (GRANTMINT-145): binding used to run only after the
+     * verifier's temporal check, so an expired token for the wrong product reported EXPIRED here
+     * while the reference reported WRONG_PRODUCT. Binding now sits before the temporal window in
+     * both implementations.
+     */
+    @Test
+    void expiredTokenForAnotherProductReportsWrongProductLikeTheReference() {
+        KeyPair keys = Ed25519Keys.generate(new SecureRandom());
+        String token = new LicenseTokenIssuer(new Ed25519Signer(keys.getPrivate(), "GMK1"))
+                .sign(new TokenPayload(
+                        TokenPayload.CURRENT_VERSION,
+                        "lic_binding_expired",
+                        "K7P2-9QXM-4T1A",
+                        "acme-notes",
+                        "pro-annual",
+                        new Holder("Jane Doe", "jane@example.com"),
+                        NOW.minusSeconds(7200).getEpochSecond(),
+                        null,
+                        NOW.minusSeconds(3600).getEpochSecond(), // already expired at NOW
+                        EntitlementSet.empty(),
+                        null,
+                        2));
+
+        GrantmintClientProperties props = new GrantmintClientProperties();
+        props.setProduct("some-other-app");
+        OfflineTokenVerifier verifier = new OfflineTokenVerifier(
+                Base64.getEncoder().encodeToString(Ed25519Keys.encodePublicKey(keys.getPublic())),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        LicenseStatus status = LicenseValidator.offlineOnly(verifier, props).verifyOffline(token);
+        assertThat(status.valid()).isFalse();
+        assertThat(status.reason()).isEqualTo(LicenseStatus.Reason.WRONG_PRODUCT);
+        assertThat(status.keyId()).isEqualTo("K7P2-9QXM-4T1A");
+
+        // Same expired token, right product: now the temporal window speaks — EXPIRED, with the
+        // authenticated key id still surfaced.
+        props.setProduct("acme-notes");
+        LicenseStatus expired = LicenseValidator.offlineOnly(verifier, props).verifyOffline(token);
+        assertThat(expired.valid()).isFalse();
+        assertThat(expired.reason()).isEqualTo(LicenseStatus.Reason.EXPIRED);
+        assertThat(expired.keyId()).isEqualTo("K7P2-9QXM-4T1A");
+    }
 }

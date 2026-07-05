@@ -33,13 +33,28 @@ public class TokenVerificationException extends RuntimeException {
     }
 
     private final Reason reason;
+    private final String keyId;
 
     public TokenVerificationException(Reason reason, String message) {
+        this(reason, message, null);
+    }
+
+    /** Refusal of an authentic token — the signature already verified, so the key id is trusted. */
+    public TokenVerificationException(Reason reason, String message, String keyId) {
         super(message);
         this.reason = reason;
+        this.keyId = keyId;
     }
 
     public Reason reason() {
         return reason;
+    }
+
+    /**
+     * The token's authenticated {@code kid}, or null when verification failed before the signature
+     * spoke (a malformed or forged token's claims are attacker-controlled and never surfaced).
+     */
+    public String keyId() {
+        return keyId;
     }
 }

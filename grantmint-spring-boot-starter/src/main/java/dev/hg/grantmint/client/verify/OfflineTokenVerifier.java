@@ -31,7 +31,10 @@ import java.util.Map;
  *       may be null (perpetual) — absence is malformed; {@code lid}/{@code kid}/{@code prd}/
  *       {@code pol}/{@code hld} (with string {@code n}/{@code e}) and {@code iat} are required per
  *       the spec's claim table; {@code nbf} is genuinely optional;
- *       {@code now >= exp} is expired (exp exclusive), {@code now < nbf} not yet valid.
+ *   <li>product binding (when an expected product is given) <em>before</em> the temporal window —
+ *       the reference checks {@code prd} ahead of {@code nbf}/{@code exp}, so an expired token for
+ *       the wrong product is WRONG_PRODUCT in both implementations, never EXPIRED in one of them;
+ *   <li>{@code now >= exp} is expired (exp exclusive), {@code now < nbf} not yet valid.
  * </ol>
  */
 public final class OfflineTokenVerifier {
@@ -50,18 +53,31 @@ public final class OfflineTokenVerifier {
         this.clock = clock;
     }
 
-    /** Verify at the configured clock's now. */
+    /** Verify at the configured clock's now, with no product binding. */
     public VerifiedToken verify(String token) {
-        return verifyAt(token, clock.instant());
+        return verifyAt(token, null, clock.instant());
+    }
+
+    /** Verify at the configured clock's now, bound to {@code expectedProduct} (null skips binding). */
+    public VerifiedToken verify(String token, String expectedProduct) {
+        return verifyAt(token, expectedProduct, clock.instant());
+    }
+
+    /** Verify the token as of {@code now}, with no product binding. */
+    public VerifiedToken verifyAt(String token, Instant now) {
+        return verifyAt(token, null, now);
     }
 
     /**
-     * Verify the token as of {@code now}.
+     * Verify the token as of {@code now}. When {@code expectedProduct} is non-null, the
+     * authenticated {@code prd} claim must equal it — checked between the format-version gate and
+     * the temporal window, mirroring the reference verifier's step order so both implementations
+     * report the same reason for the same bytes.
      *
-     * @throws TokenVerificationException when the token is malformed, forged, expired, or not yet
-     *     valid — the reason says which
+     * @throws TokenVerificationException when the token is malformed, forged, for another product,
+     *     expired, or not yet valid — the reason says which
      */
-    public VerifiedToken verifyAt(String token, Instant now) {
+    public VerifiedToken verifyAt(String token, String expectedProduct, Instant now) {
         if (token == null || token.isBlank()) {
             throw malformed("token is empty");
         }
@@ -90,7 +106,7 @@ public final class OfflineTokenVerifier {
         }
 
         // Claims are trusted only past this point — the signature has spoken.
-        return checkClaims(parsePayload(segments[1]), now);
+        return checkClaims(parsePayload(segments[1]), expectedProduct, now);
     }
 
     private static void pinHeader(byte[] headerBytes) {
@@ -137,7 +153,7 @@ public final class OfflineTokenVerifier {
         }
     }
 
-    private static VerifiedToken checkClaims(Map<String, Object> claims, Instant now) {
+    private static VerifiedToken checkClaims(Map<String, Object> claims, String expectedProduct, Instant now) {
         // exp is REQUIRED on the wire; its value may be null (perpetual). Absence is malformed —
         // never silently perpetual (CROSS_VERIFIER_FIXTURES.md, perpetual licenses note).
         if (!claims.containsKey("exp")) {
@@ -183,14 +199,23 @@ public final class OfflineTokenVerifier {
             throw malformed("ver must be an integer format version");
         }
         if (version != 1L) {
-            throw new TokenVerificationException(Reason.UNSUPPORTED_VERSION, "unsupported token version " + version);
+            throw new TokenVerificationException(
+                    Reason.UNSUPPORTED_VERSION, "unsupported token version " + version, kid);
+        }
+
+        // Product binding before the temporal window — the reference's step order (an authentic
+        // token for a sibling product must not pass another product's gate, and the reason must not
+        // depend on whether it also happens to be expired).
+        if (expectedProduct != null && !expectedProduct.equals(prd)) {
+            throw new TokenVerificationException(
+                    Reason.WRONG_PRODUCT, "token is for product '" + prd + "', not '" + expectedProduct + "'", kid);
         }
 
         if (nbf != null && now.getEpochSecond() < nbf) {
-            throw new TokenVerificationException(Reason.NOT_YET_VALID, "token not valid before " + nbf);
+            throw new TokenVerificationException(Reason.NOT_YET_VALID, "token not valid before " + nbf, kid);
         }
         if (exp != null && now.getEpochSecond() >= exp) {
-            throw new TokenVerificationException(Reason.EXPIRED, "token expired at " + exp);
+            throw new TokenVerificationException(Reason.EXPIRED, "token expired at " + exp, kid);
         }
 
         return new VerifiedToken(

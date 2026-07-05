@@ -374,6 +374,55 @@ class OfflineVerifierParityPropertyTest {
         }
     }
 
+    /**
+     * Product binding sits between the version gate and the temporal window in BOTH implementations
+     * (2026-07-05 audit, GRANTMINT-145): a token that is simultaneously expired and for the wrong
+     * product is WRONG_PRODUCT everywhere — the reason must not depend on which implementation
+     * verified it. And with the right product, both fall through to EXPIRED.
+     */
+    @Example
+    void expiredWrongProductIsWrongProductInBothImplementations() {
+        KeyPair keys = Ed25519Keys.generate(RNG);
+        Ed25519Signer signer = new Ed25519Signer(keys.getPrivate(), "GMK1");
+        String token = new LicenseTokenIssuer(signer)
+                .sign(new TokenPayload(
+                        TokenPayload.CURRENT_VERSION,
+                        "lic_prd_exp",
+                        "K7P2-9QXM-4T1A",
+                        "acme-notes",
+                        "pro-annual",
+                        new Holder("Jane Doe", "jane@example.com"),
+                        NOW.getEpochSecond() - 7200,
+                        null,
+                        NOW.getEpochSecond() - 3600, // expired an hour before NOW
+                        EntitlementSet.empty(),
+                        null,
+                        2));
+
+        LicenseVerifier reference = LicenseVerifier.of(keys.getPublic());
+        OfflineTokenVerifier starter = new OfflineTokenVerifier(
+                Base64.getEncoder().encodeToString(Ed25519Keys.encodePublicKey(keys.getPublic())));
+
+        assertThat(reference
+                        .verifyAt(token, dev.hg.grantmint.core.time.Clock.fixed(NOW), "some-other-app")
+                        .reason())
+                .isEqualTo(dev.hg.grantmint.core.token.FailureReason.WRONG_PRODUCT);
+        Throwable refusal = catchThrowable(() -> starter.verifyAt(token, "some-other-app", NOW));
+        assertThat(refusal).isInstanceOf(TokenVerificationException.class);
+        assertThat(((TokenVerificationException) refusal).reason())
+                .isEqualTo(TokenVerificationException.Reason.WRONG_PRODUCT);
+        assertThat(((TokenVerificationException) refusal).keyId()).isEqualTo("K7P2-9QXM-4T1A");
+
+        assertThat(reference
+                        .verifyAt(token, dev.hg.grantmint.core.time.Clock.fixed(NOW), "acme-notes")
+                        .reason())
+                .isEqualTo(dev.hg.grantmint.core.token.FailureReason.EXPIRED);
+        Throwable rightProduct = catchThrowable(() -> starter.verifyAt(token, "acme-notes", NOW));
+        assertThat(rightProduct).isInstanceOf(TokenVerificationException.class);
+        assertThat(((TokenVerificationException) rightProduct).reason())
+                .isEqualTo(TokenVerificationException.Reason.EXPIRED);
+    }
+
     /** Sign arbitrary raw JSON under the given signer — for shapes the canonical issuer refuses to mint. */
     private static String signRawJson(Ed25519Signer signer, String headerJson, String payloadJson) {
         java.util.Base64.Encoder b64 = Base64.getUrlEncoder().withoutPadding();

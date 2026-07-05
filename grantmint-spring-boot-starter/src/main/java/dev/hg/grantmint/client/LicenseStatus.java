@@ -21,11 +21,19 @@ public record LicenseStatus(
         entitlements = entitlements == null ? Map.of() : Map.copyOf(entitlements);
     }
 
-    /** Why a check passed or failed. */
+    /**
+     * Why a check passed or failed. The offline reasons deliberately collapse the verifier's
+     * structural taxonomy (malformed / algorithm-confused / wrong-typed / forged) into
+     * {@link #INVALID_SIGNATURE} — which defect an untrustworthy token exhibits is not actionable
+     * for an app. {@link #UNSUPPORTED_VERSION} stays distinct because that credential is authentic:
+     * the right user action is "update this app", not "your license is bad".
+     */
     public enum Reason {
         VALID,
         /** Malformed or forged token — never acceptable. */
         INVALID_SIGNATURE,
+        /** An authentic token whose format version this verifier does not know — update the app. */
+        UNSUPPORTED_VERSION,
         /** An authentic token, but for a different product than this app is configured for. */
         WRONG_PRODUCT,
         EXPIRED,
