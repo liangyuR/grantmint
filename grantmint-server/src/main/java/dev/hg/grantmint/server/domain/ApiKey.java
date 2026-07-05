@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.hibernate.annotations.CreationTimestamp;
@@ -17,7 +18,7 @@ import org.hibernate.annotations.CreationTimestamp;
  * once at creation and never persisted. See docs/architecture/DATABASE_SCHEMA.md.
  */
 @Entity
-@Table(name = "api_keys")
+@Table(name = "api_keys", uniqueConstraints = @UniqueConstraint(name = "uq_api_keys_hash", columnNames = "key_hash"))
 public class ApiKey {
 
     @Id

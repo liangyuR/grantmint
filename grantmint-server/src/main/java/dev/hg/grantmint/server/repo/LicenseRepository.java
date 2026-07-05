@@ -46,8 +46,16 @@ public interface LicenseRepository extends JpaRepository<License, UUID>, JpaSpec
     @Query("select l from License l where l.keyId = :keyId")
     Optional<License> findByKeyIdForUpdate(@Param("keyId") String keyId);
 
-    /** "List a customer's licenses" — case-insensitive email match (backed by a lower() index). */
-    List<License> findByHolderEmailIgnoreCase(String holderEmail);
+    /**
+     * "List a customer's licenses" — case-insensitive email match. Explicit JPQL {@code lower()} on
+     * purpose: Spring Data's derived {@code IgnoreCase} keyword compiles to {@code
+     * UPPER(holder_email) = UPPER(?)}, which the expression index {@code ix_licenses_holder_email ON
+     * licenses (lower(holder_email))} (V2) can never serve — every lookup would silently seq-scan
+     * (post-M13 audit). This form matches the index's expression exactly, like the admin list
+     * endpoint's {@code cb.lower(...)} Specification.
+     */
+    @Query("select l from License l where lower(l.holderEmail) = lower(:holderEmail)")
+    List<License> findByHolderEmailIgnoreCase(@Param("holderEmail") String holderEmail);
 
     List<License> findByExternalRef(String externalRef);
 

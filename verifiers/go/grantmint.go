@@ -34,7 +34,15 @@ import (
 )
 
 var (
-	ErrMalformed    = errors.New("grantmint: malformed token")
+	ErrMalformed = errors.New("grantmint: malformed token")
+	// ErrAlgNotAllowed is the Java reference's ALG_NOT_ALLOWED: the header does not pin the one
+	// allowed signature scheme (alg=EdDSA over crv=Ed25519) — an algorithm- or curve-confusion
+	// attempt, rejected before any signature work.
+	ErrAlgNotAllowed = errors.New("grantmint: signature scheme not allowed")
+	// ErrWrongType is the Java reference's WRONG_TYPE: the header typ is not GMT — a correctly
+	// structured token that is not a Grantmint license (e.g. a generic JWT), rejected before any
+	// signature work.
+	ErrWrongType    = errors.New("grantmint: not a grantmint license token")
 	ErrBadSignature = errors.New("grantmint: signature mismatch")
 	ErrExpired      = errors.New("grantmint: token expired")
 	ErrNotYetValid  = errors.New("grantmint: token not yet valid")
@@ -70,7 +78,8 @@ func Verify(token, publicKeyHex string, now int64) (map[string]any, error) {
 
 	// Pin the scheme BEFORE touching the signature (closes JWT algorithm confusion). Like the
 	// Java reference, the header must carry all four fields as strings — a kid-less header is
-	// malformed — and then alg/crv/typ must hold exactly the pinned values.
+	// malformed — and then alg/crv/typ must hold exactly the pinned values, each failure keeping
+	// the reference's distinct reason: ALG_NOT_ALLOWED, then WRONG_TYPE, in that order.
 	header, err := parseStrictObject(headerBytes)
 	if err != nil {
 		return nil, ErrMalformed
@@ -80,8 +89,11 @@ func Verify(token, publicKeyHex string, now int64) (map[string]any, error) {
 			return nil, ErrMalformed
 		}
 	}
-	if header["alg"] != "EdDSA" || header["crv"] != "Ed25519" || header["typ"] != "GMT" {
-		return nil, ErrMalformed
+	if header["alg"] != "EdDSA" || header["crv"] != "Ed25519" {
+		return nil, ErrAlgNotAllowed
+	}
+	if header["typ"] != "GMT" {
+		return nil, ErrWrongType
 	}
 
 	// Signature over the RECEIVED segments joined by a literal dot — never a re-serialization.

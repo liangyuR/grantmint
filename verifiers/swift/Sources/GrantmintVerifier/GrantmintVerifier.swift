@@ -27,7 +27,11 @@ import CryptoKit
 import Foundation
 
 public enum LicenseError: Error, Equatable {
-    case malformed, badSignature, expired, notYetValid, badKey
+    /// `algNotAllowed` is the Java reference's ALG_NOT_ALLOWED (the header does not pin alg=EdDSA
+    /// over crv=Ed25519 — an algorithm- or curve-confusion attempt) and `wrongType` its WRONG_TYPE
+    /// (typ is not GMT — not a Grantmint license, e.g. a generic JWT); both are decided before any
+    /// signature work, alg first, exactly like the Java, Go, and starter verifiers.
+    case malformed, algNotAllowed, wrongType, badSignature, expired, notYetValid, badKey
 }
 
 public struct VerifiedLicense {
@@ -62,14 +66,19 @@ public func verifyLicense(_ token: String, publicKeyBase64: String, now: Int64) 
 
     // 2) Scheme + type pinning BEFORE the signature (closes JWT alg confusion). Like the Java
     //    reference, the header must carry all four fields as strings — a kid-less header is
-    //    malformed — and alg/crv/typ must hold exactly the pinned values.
+    //    malformed — and alg/crv/typ must hold exactly the pinned values, each failure keeping the
+    //    reference's distinct reason: ALG_NOT_ALLOWED first, then WRONG_TYPE.
     guard StrictJSONScan.isStrictObject(headerData),
         let header = (try? JSONSerialization.jsonObject(with: headerData)) as? [String: Any],
         header["kid"] as? String != nil,
-        header["alg"] as? String == "EdDSA",
-        header["crv"] as? String == "Ed25519",
-        header["typ"] as? String == "GMT"
+        header["alg"] as? String != nil,
+        header["crv"] as? String != nil,
+        header["typ"] as? String != nil
     else { throw LicenseError.malformed }
+    guard header["alg"] as? String == "EdDSA", header["crv"] as? String == "Ed25519" else {
+        throw LicenseError.algNotAllowed
+    }
+    guard header["typ"] as? String == "GMT" else { throw LicenseError.wrongType }
 
     // 3) Ed25519 over the RECEIVED signing input — never a re-serialization.
     let signingInput = Data((headerSeg + "." + payloadSeg).utf8)
@@ -118,8 +127,8 @@ public func verifyLicense(_ token: String, publicKeyBase64: String, now: Int64) 
     }
 
     // Format-version gate — after the claim table, before the temporal window, the same position
-    // as the reference, starter, and Go verifiers (unobservable through the collapsed error
-    // taxonomy, but kept aligned so the four sources read as one decision procedure).
+    // as the reference, starter, and Go verifiers (unobservable through this error taxonomy, which
+    // reads it as malformed, but kept aligned so the four sources read as one decision procedure).
     guard try integerClaim(obj["ver"]) == 1 else { throw LicenseError.malformed }
 
     // 5) Temporal window: nbf inclusive, exp exclusive.

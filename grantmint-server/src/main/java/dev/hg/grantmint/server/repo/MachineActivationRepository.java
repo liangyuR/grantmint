@@ -18,8 +18,17 @@ public interface MachineActivationRepository extends JpaRepository<MachineActiva
     /** Idempotent re-activation: at most one row per (license, fingerprint). */
     Optional<MachineActivation> findByLicense_IdAndFingerprint(UUID licenseId, String fingerprint);
 
-    /** Active seat count for a license (used inside the activation transaction). */
-    long countByLicense_IdAndStatus(UUID licenseId, String status);
+    /**
+     * Active seat count for a license (used inside the activation transaction). The {@code active}
+     * status is a JPQL <b>literal</b>, not a bind parameter, for the same reason as {@link
+     * LicenseRepository#findExpiryCandidates}: the partial index {@code ix_activations_license_active}
+     * (V2) only covers rows {@code WHERE status = 'active'}, and PostgreSQL can only choose it when
+     * the query's predicate provably implies the index's — a bound parameter stops being provable
+     * under a generic plan (post-M13 audit). {@link #countActiveByKeyId} and {@link #findStaleActive}
+     * follow the same discipline.
+     */
+    @Query("select count(a) from MachineActivation a" + " where a.license.id = :licenseId and a.status = 'active'")
+    long countActiveByLicenseId(@Param("licenseId") UUID licenseId);
 
     /** Active seat count by the license's short key ID. */
     @Query("select count(a) from MachineActivation a" + " where a.license.keyId = :keyId and a.status = 'active'")

@@ -96,14 +96,27 @@ func TestTamperedPayloadIsRejected(t *testing.T) {
 	}
 }
 
-func TestAlgConfusionIsRejectedBeforeSignature(t *testing.T) {
-	// A pinning failure must surface as malformed even with a garbage signature — proof the
-	// header pin runs before any signature work.
-	header := b64.EncodeToString([]byte(`{"alg":"none","crv":"Ed25519","kid":"GMK1","typ":"GMT"}`))
+func TestHeaderPinningIsRejectedBeforeSignatureWithDistinctReasons(t *testing.T) {
+	// A pinning failure must surface even with a garbage signature — proof the header pin runs
+	// before any signature work — and must keep the Java reference's distinct reason: a scheme or
+	// curve confusion is ALG_NOT_ALLOWED, a foreign typ is WRONG_TYPE, and the alg gate runs first.
+	cases := map[string]struct {
+		headerJSON string
+		want       error
+	}{
+		"alg=none":          {`{"alg":"none","crv":"Ed25519","kid":"GMK1","typ":"GMT"}`, ErrAlgNotAllowed},
+		"alg=HS256":         {`{"alg":"HS256","crv":"Ed25519","kid":"GMK1","typ":"GMT"}`, ErrAlgNotAllowed},
+		"curve confusion":   {`{"alg":"EdDSA","crv":"Ed448","kid":"GMK1","typ":"GMT"}`, ErrAlgNotAllowed},
+		"foreign typ (JWT)": {`{"alg":"EdDSA","crv":"Ed25519","kid":"GMK1","typ":"JWT"}`, ErrWrongType},
+		"alg gate runs 1st": {`{"alg":"none","crv":"Ed25519","kid":"GMK1","typ":"JWT"}`, ErrAlgNotAllowed},
+	}
 	payload := strings.Split(fixtureToken, ".")[1]
-	token := header + "." + payload + "." + b64.EncodeToString(make([]byte, 64))
-	if _, err := Verify(token, fixturePublicHex, fixtureIat); !errors.Is(err, ErrMalformed) {
-		t.Fatalf("alg=none must be malformed before the signature is touched, got %v", err)
+	for name, tc := range cases {
+		header := b64.EncodeToString([]byte(tc.headerJSON))
+		token := header + "." + payload + "." + b64.EncodeToString(make([]byte, 64))
+		if _, err := Verify(token, fixturePublicHex, fixtureIat); !errors.Is(err, tc.want) {
+			t.Fatalf("%s: want %v before the signature is touched, got %v", name, tc.want, err)
+		}
 	}
 }
 

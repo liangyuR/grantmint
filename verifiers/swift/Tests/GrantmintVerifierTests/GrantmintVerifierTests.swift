@@ -105,19 +105,29 @@ final class GrantmintVerifierTests: XCTestCase {
         assertThrows(parts[0] + "." + String(payload) + "." + parts[2], .badSignature)
     }
 
-    func testAlgConfusionIsRejectedBeforeSignature() throws {
-        // A pinning failure must surface as malformed even with a garbage signature — proof the
-        // header pin runs before any signature work.
+    func testHeaderPinningIsRejectedBeforeSignatureWithDistinctReasons() throws {
+        // A pinning failure must surface even with a garbage signature — proof the header pin runs
+        // before any signature work — and must keep the Java reference's distinct reason: a scheme
+        // or curve confusion is ALG_NOT_ALLOWED, a foreign typ is WRONG_TYPE, and alg gates first.
         func b64url(_ raw: Data) -> String {
             raw.base64EncodedString()
                 .replacingOccurrences(of: "+", with: "-")
                 .replacingOccurrences(of: "/", with: "_")
                 .replacingOccurrences(of: "=", with: "")
         }
-        let header = b64url(Data(#"{"alg":"none","crv":"Ed25519","kid":"GMK1","typ":"GMT"}"#.utf8))
+        let cases: [(String, String, LicenseError)] = [
+            ("alg=none", #"{"alg":"none","crv":"Ed25519","kid":"GMK1","typ":"GMT"}"#, .algNotAllowed),
+            ("alg=HS256", #"{"alg":"HS256","crv":"Ed25519","kid":"GMK1","typ":"GMT"}"#, .algNotAllowed),
+            ("curve confusion", #"{"alg":"EdDSA","crv":"Ed448","kid":"GMK1","typ":"GMT"}"#, .algNotAllowed),
+            ("foreign typ (JWT)", #"{"alg":"EdDSA","crv":"Ed25519","kid":"GMK1","typ":"JWT"}"#, .wrongType),
+            ("alg gate runs first", #"{"alg":"none","crv":"Ed25519","kid":"GMK1","typ":"JWT"}"#, .algNotAllowed),
+        ]
         let payload = Self.token.split(separator: ".").map(String.init)[1]
         let garbageSig = b64url(Data(count: 64))
-        assertThrows(header + "." + payload + "." + garbageSig, .malformed)
+        for (name, headerJSON, expected) in cases {
+            let header = b64url(Data(headerJSON.utf8))
+            assertThrows(header + "." + payload + "." + garbageSig, expected, name)
+        }
     }
 
     // Every required claim except exp and ver, so each adversarial case isolates one defect.

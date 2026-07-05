@@ -104,13 +104,13 @@ public class ActivationService {
             MachineActivation activation = existing.get();
             activation.setLastHeartbeatAt(now);
             activation.setIpAddress(AuditService.normalizeIpOrNull(command.ipAddress()));
-            long seatsUsed = activations.countByLicense_IdAndStatus(license.getId(), MACHINE_ACTIVE);
+            long seatsUsed = activations.countActiveByLicenseId(license.getId());
             return result(license, activation, seatsUsed, true, heartbeatInterval, now);
         }
 
         // New fingerprint, or a deactivated row coming back: both need a free seat. The license row
         // is locked, so this count cannot race another activation.
-        long seatsUsed = activations.countByLicense_IdAndStatus(license.getId(), MACHINE_ACTIVE);
+        long seatsUsed = activations.countActiveByLicenseId(license.getId());
         if (seatsUsed >= license.getMaxSeats()) {
             throw new SeatLimitExceededException(command.keyId(), seatsUsed, license.getMaxSeats());
         }
@@ -188,7 +188,7 @@ public class ActivationService {
         OffsetDateTime now = now();
         activation.setStatus(MACHINE_DEACTIVATED);
         activation.setDeactivatedAt(now);
-        long seatsUsed = activations.countByLicense_IdAndStatus(license.getId(), MACHINE_ACTIVE);
+        long seatsUsed = activations.countActiveByLicenseId(license.getId());
 
         audit.record(
                 actor,
