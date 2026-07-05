@@ -46,6 +46,12 @@ var (
 	ErrBadSignature = errors.New("grantmint: signature mismatch")
 	ErrExpired      = errors.New("grantmint: token expired")
 	ErrNotYetValid  = errors.New("grantmint: token not yet valid")
+	// ErrUnsupportedVersion is the Java reference's UNSUPPORTED_VERSION: the signature is sound
+	// but the claims declare a format version this verifier does not know — an authentic token
+	// from a future issuer, rejected fail-closed with its own reason (telemetry can tell "update
+	// the verifier" apart from a corrupt token). A wrong-typed or out-of-int32-range ver stays
+	// ErrMalformed, exactly like the reference.
+	ErrUnsupportedVersion = errors.New("grantmint: unsupported token format version")
 )
 
 // b64 rejects the standard alphabet and '=' padding by construction (RawURLEncoding) and
@@ -165,8 +171,11 @@ func Verify(token, publicKeyHex string, now int64) (map[string]any, error) {
 		}
 	}
 	ver, ok := claims["ver"].(int64)
-	if !ok || ver != 1 {
-		return nil, ErrMalformed // fail closed on an unknown format version
+	if !ok || ver < math.MinInt32 || ver > math.MaxInt32 {
+		return nil, ErrMalformed // wrong-typed or out-of-int32-range, like any other claim
+	}
+	if ver != 1 {
+		return nil, ErrUnsupportedVersion // authentic but from a future format — fail closed
 	}
 	// exp is a REQUIRED key whose value may be null (perpetual). Absence is malformed —
 	// never silently perpetual.

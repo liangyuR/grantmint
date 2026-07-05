@@ -161,8 +161,10 @@ describe('verifyTokenOffline', () => {
       'oversized integer': `{"exp":99999999999999999999,${REQUIRED_TAIL},"ver":1}`,
       'string exp': `{"exp":"1782666000",${REQUIRED_TAIL},"ver":1}`,
       'missing exp': `{${REQUIRED_TAIL},"ver":1}`,
-      'unknown ver': `{"exp":null,${REQUIRED_TAIL},"ver":2}`,
       'trailing content': `{"exp":null,${REQUIRED_TAIL},"ver":1} {}`,
+      // A ver beyond int32 is a malformed claim (the reference parses ver as an int), NOT a future
+      // format version — only a well-typed in-range unknown version gets its own reason below.
+      'ver beyond int32': `{"exp":null,${REQUIRED_TAIL},"ver":5000000000}`,
       'non-object toplevel': '[1,2,3]',
       'missing pol/hld/iat': '{"ent":{},"exp":null,"kid":"K","lid":"l","prd":"p","ver":1}',
       'missing ent': '{"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}',
@@ -191,6 +193,41 @@ describe('verifyTokenOffline', () => {
         await expect(verifyTokenOffline(token, PUBLIC_KEY_BASE64, IAT)).rejects.toThrow(TokenFormatError);
       });
     }
+  });
+
+  it('rejects an unknown format version with its own distinct reason', async () => {
+    // 2026-07-05 audit (GRANTMINT-148): an authentic token from a future format version keeps the
+    // Java verifiers' distinct UNSUPPORTED_VERSION reason — still rejected, but telemetry can tell
+    // "update the verifier" apart from a corrupt token.
+    const token = await signRaw(PINNED_HEADER_JSON, `{"exp":null,${REQUIRED_TAIL},"ver":2}`);
+    await expect(verifyTokenOffline(token, PUBLIC_KEY_BASE64, IAT)).rejects.toMatchObject({
+      reason: 'unsupported_version',
+    });
+  });
+
+  it('carries the alg/typ pin reasons distinctly, defaulting everything else to malformed', async () => {
+    const payload = `{"exp":null,${REQUIRED_TAIL},"ver":1}`;
+    const algConfused = await signRaw(
+      '{"alg":"none","crv":"Ed25519","kid":"GMK1","typ":"GMT"}',
+      payload,
+    );
+    await expect(verifyTokenOffline(algConfused, PUBLIC_KEY_BASE64, IAT)).rejects.toMatchObject({
+      reason: 'alg_not_allowed',
+    });
+    const foreignType = await signRaw(
+      '{"alg":"EdDSA","crv":"Ed25519","kid":"GMK1","typ":"JWT"}',
+      payload,
+    );
+    await expect(verifyTokenOffline(foreignType, PUBLIC_KEY_BASE64, IAT)).rejects.toMatchObject({
+      reason: 'wrong_type',
+    });
+    const missingEnt = await signRaw(
+      PINNED_HEADER_JSON,
+      '{"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}',
+    );
+    await expect(verifyTokenOffline(missingEnt, PUBLIC_KEY_BASE64, IAT)).rejects.toMatchObject({
+      reason: 'malformed',
+    });
   });
 
   it('rejects a header missing kid even when validly signed', async () => {

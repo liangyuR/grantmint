@@ -31,7 +31,11 @@ public enum LicenseError: Error, Equatable {
     /// over crv=Ed25519 — an algorithm- or curve-confusion attempt) and `wrongType` its WRONG_TYPE
     /// (typ is not GMT — not a Grantmint license, e.g. a generic JWT); both are decided before any
     /// signature work, alg first, exactly like the Java, Go, and starter verifiers.
-    case malformed, algNotAllowed, wrongType, badSignature, expired, notYetValid, badKey
+    /// `unsupportedVersion` is the reference's UNSUPPORTED_VERSION: an authentic token whose claims
+    /// declare a format version this verifier does not know — rejected fail-closed with its own
+    /// reason, so telemetry can tell "update the verifier" apart from a corrupt token. A wrong-typed
+    /// or out-of-int32-range `ver` stays `malformed`, exactly like the reference.
+    case malformed, algNotAllowed, wrongType, badSignature, unsupportedVersion, expired, notYetValid, badKey
 }
 
 public struct VerifiedLicense {
@@ -127,9 +131,13 @@ public func verifyLicense(_ token: String, publicKeyBase64: String, now: Int64) 
     }
 
     // Format-version gate — after the claim table, before the temporal window, the same position
-    // as the reference, starter, and Go verifiers (unobservable through this error taxonomy, which
-    // reads it as malformed, but kept aligned so the four sources read as one decision procedure).
-    guard try integerClaim(obj["ver"]) == 1 else { throw LicenseError.malformed }
+    // and the same granularity as the reference, starter, and Go verifiers: a wrong-typed or
+    // out-of-int32-range ver is malformed like any other claim; a well-typed unknown version gets
+    // its own reason.
+    guard let ver = try integerClaim(obj["ver"]), ver >= Int64(Int32.min), ver <= Int64(Int32.max) else {
+        throw LicenseError.malformed
+    }
+    guard ver == 1 else { throw LicenseError.unsupportedVersion }
 
     // 5) Temporal window: nbf inclusive, exp exclusive.
     if let nbf, now < nbf { throw LicenseError.notYetValid }

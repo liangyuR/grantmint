@@ -143,8 +143,11 @@ final class GrantmintVerifierTests: XCTestCase {
             ("oversized integer", #"{"exp":99999999999999999999,"# + requiredTail + #","ver":1}"#),
             ("string exp", #"{"exp":"1782666000","# + requiredTail + #","ver":1}"#),
             ("missing exp", "{" + requiredTail + #","ver":1}"#),
-            ("unknown ver", #"{"exp":null,"# + requiredTail + #","ver":2}"#),
             ("boolean ver", #"{"exp":null,"# + requiredTail + #","ver":true}"#),
+            // A ver beyond int32 is a malformed claim (the reference parses ver as an int), NOT a
+            // future format version — only a well-typed in-range unknown version gets its own
+            // reason (see testUnknownFormatVersionIsUnsupportedNotMalformed).
+            ("ver beyond int32", #"{"exp":null,"# + requiredTail + #","ver":5000000000}"#),
             ("missing pol/hld/iat", #"{"ent":{},"exp":null,"kid":"K","lid":"l","prd":"p","ver":1}"#),
             (
                 "missing ent",
@@ -182,6 +185,16 @@ final class GrantmintVerifierTests: XCTestCase {
             let token = try Self.signRaw(headerJSON: Self.pinnedHeaderJSON, payloadJSON: payloadJSON)
             assertThrows(token, .malformed, name)
         }
+    }
+
+    func testUnknownFormatVersionIsUnsupportedNotMalformed() throws {
+        // 2026-07-05 audit (GRANTMINT-148): an authentic token from a future format version keeps
+        // the reference's distinct UNSUPPORTED_VERSION reason — still rejected, but telemetry can
+        // tell "update the verifier" apart from a corrupt token, like the Java verifiers do.
+        let token = try Self.signRaw(
+            headerJSON: Self.pinnedHeaderJSON,
+            payloadJSON: #"{"exp":null,"# + Self.requiredTail + #","ver":2}"#)
+        assertThrows(token, .unsupportedVersion, "unknown ver")
     }
 
     func testHeaderMissingKidIsMalformed() throws {

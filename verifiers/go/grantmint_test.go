@@ -144,14 +144,17 @@ const requiredTail = `"ent":{},"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K
 
 func TestValidlySignedButNonStrictPayloadsAreMalformed(t *testing.T) {
 	cases := map[string]string{
-		"duplicate key":       `{"exp":null,"exp":null,` + requiredTail + `,"ver":1}`,
-		"float exp":           `{"exp":1.5,` + requiredTail + `,"ver":1}`,
-		"exponent number":     `{"exp":2e9,` + requiredTail + `,"ver":1}`,
-		"oversized integer":   `{"exp":99999999999999999999,` + requiredTail + `,"ver":1}`,
-		"string exp":          `{"exp":"1782666000",` + requiredTail + `,"ver":1}`,
-		"missing exp":         `{` + requiredTail + `,"ver":1}`,
-		"unknown ver":         `{"exp":null,` + requiredTail + `,"ver":2}`,
-		"trailing content":    `{"exp":null,` + requiredTail + `,"ver":1} {}`,
+		"duplicate key":     `{"exp":null,"exp":null,` + requiredTail + `,"ver":1}`,
+		"float exp":         `{"exp":1.5,` + requiredTail + `,"ver":1}`,
+		"exponent number":   `{"exp":2e9,` + requiredTail + `,"ver":1}`,
+		"oversized integer": `{"exp":99999999999999999999,` + requiredTail + `,"ver":1}`,
+		"string exp":        `{"exp":"1782666000",` + requiredTail + `,"ver":1}`,
+		"missing exp":       `{` + requiredTail + `,"ver":1}`,
+		"trailing content":  `{"exp":null,` + requiredTail + `,"ver":1} {}`,
+		// A ver beyond int32 is a malformed claim (the reference parses ver as an int), NOT a
+		// future format version — only a well-typed in-range unknown version gets its own reason
+		// (see TestUnknownFormatVersionIsUnsupportedNotMalformed).
+		"ver beyond int32":    `{"exp":null,` + requiredTail + `,"ver":5000000000}`,
 		"non-object toplevel": `[1,2,3]`,
 		"missing pol/hld/iat": `{"ent":{},"exp":null,"kid":"K","lid":"l","prd":"p","ver":1}`,
 		"missing ent":         `{"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}`,
@@ -175,6 +178,16 @@ func TestValidlySignedButNonStrictPayloadsAreMalformed(t *testing.T) {
 		if _, err := Verify(token, fixturePublicHex, fixtureIat); !errors.Is(err, ErrMalformed) {
 			t.Fatalf("%s: want ErrMalformed, got %v", name, err)
 		}
+	}
+}
+
+// 2026-07-05 audit (GRANTMINT-148): an authentic token from a future format version keeps the
+// reference's distinct UNSUPPORTED_VERSION reason — still rejected, but telemetry can tell
+// "update the verifier" apart from a corrupt token, like the Java verifiers do.
+func TestUnknownFormatVersionIsUnsupportedNotMalformed(t *testing.T) {
+	token := signRaw(t, pinnedHeaderJSON, `{"exp":null,`+requiredTail+`,"ver":2}`)
+	if _, err := Verify(token, fixturePublicHex, fixtureIat); !errors.Is(err, ErrUnsupportedVersion) {
+		t.Fatalf("ver=2: want ErrUnsupportedVersion, got %v", err)
 	}
 }
 

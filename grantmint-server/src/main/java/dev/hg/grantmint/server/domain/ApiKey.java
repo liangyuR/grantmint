@@ -36,7 +36,12 @@ public class ApiKey {
     @Column(nullable = false)
     private String name;
 
-    /** Argon2id/SHA-256 hash of the secret. The plaintext is never stored. */
+    /**
+     * SHA-256 hash of the secret — correct for high-entropy random tokens, where a KDF's work
+     * factor adds latency, not security; Argon2id is reserved for low-entropy admin passwords. The
+     * plaintext is never stored. (V1__init.sql's "Argon2id/SHA-256" comment predates this decision
+     * and is checksum-frozen.)
+     */
     @Column(name = "key_hash", nullable = false)
     private String keyHash;
 

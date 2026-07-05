@@ -67,7 +67,23 @@ export interface OfflineVerificationResult {
   notYetValid: boolean;
 }
 
-export class TokenFormatError extends Error {}
+/**
+ * Why the token was refused — the slice of the Java reference's FailureReason taxonomy a browser
+ * demo can distinguish (2026-07-05 audit, GRANTMINT-148: the reject verdict always matched the
+ * real verifiers, but `unsupported_version` used to collapse into `malformed` here while the Java
+ * verifiers report it distinctly — telemetry could not tell "update the verifier" from "corrupt
+ * token").
+ */
+export type TokenFailureReason = 'malformed' | 'alg_not_allowed' | 'wrong_type' | 'unsupported_version';
+
+export class TokenFormatError extends Error {
+  readonly reason: TokenFailureReason;
+
+  constructor(message: string, reason: TokenFailureReason = 'malformed') {
+    super(message);
+    this.reason = reason;
+  }
+}
 
 /** Ed25519 WebCrypto support varies (Chrome/Safari 2024+ generally; older browsers lack it). */
 export function browserSupportsEd25519(): boolean {
@@ -406,10 +422,10 @@ function pinHeader(header: Record<string, JsonValue>): void {
     }
   }
   if (header.alg !== 'EdDSA' || header.crv !== 'Ed25519') {
-    throw new TokenFormatError('header is not pinned to alg=EdDSA, crv=Ed25519');
+    throw new TokenFormatError('header is not pinned to alg=EdDSA, crv=Ed25519', 'alg_not_allowed');
   }
   if (header.typ !== 'GMT') {
-    throw new TokenFormatError('header typ is not GMT');
+    throw new TokenFormatError('header typ is not GMT', 'wrong_type');
   }
 }
 
@@ -520,14 +536,14 @@ function checkClaims(claims: Record<string, JsonValue>, nowSeconds: number): Cla
 
   // Format-version gate — the structure is sound, but refuse to interpret a layout this verifier
   // does not understand. A non-integer (or bigint/boolean) ver is malformed like any other claim; a
-  // well-typed unknown version is rejected too — this demo collapses both to the same malformed
-  // outcome rather than carrying the reference's separate UNSUPPORTED_VERSION reason.
+  // well-typed unknown version carries the reference's distinct UNSUPPORTED_VERSION reason, same
+  // granularity as the Java verifiers.
   const version = claims.ver;
-  if (typeof version !== 'number') {
+  if (typeof version !== 'number' || version < -2147483648 || version > 2147483647) {
     throw new TokenFormatError('ver must be an integer format version');
   }
   if (version !== 1) {
-    throw new TokenFormatError(`unsupported token version ${version}`);
+    throw new TokenFormatError(`unsupported token version ${version}`, 'unsupported_version');
   }
 
   return {
