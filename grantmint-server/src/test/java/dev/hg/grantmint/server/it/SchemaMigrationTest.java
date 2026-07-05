@@ -60,7 +60,8 @@ class SchemaMigrationTest extends PostgresIntegrationTest {
                         "ix_activations_license_active",
                         "ix_licenses_expiry_sweep",
                         "ix_activations_heartbeat",
-                        "ix_licenses_entitlements_gin");
+                        "ix_licenses_entitlements_gin",
+                        "ix_policies_code"); // V6: the webhook policy-map resolver's code-only lookup
     }
 
     @Test
