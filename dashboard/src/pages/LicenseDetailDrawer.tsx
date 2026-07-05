@@ -201,6 +201,7 @@ export default function LicenseDetailDrawer() {
                         <th scope="col" className="px-3 py-2">Platform</th>
                         <th scope="col" className="px-3 py-2">Status</th>
                         <th scope="col" className="px-3 py-2">Last heartbeat</th>
+                        <th scope="col" className="px-3 py-2">Deactivated</th>
                         <th scope="col" className="px-3 py-2">
                           <span className="sr-only">Actions</span>
                         </th>
@@ -209,7 +210,7 @@ export default function LicenseDetailDrawer() {
                     <tbody className="divide-y divide-gray-800">
                       {license.activations.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="px-3 py-4 text-center text-gray-500">
+                          <td colSpan={7} className="px-3 py-4 text-center text-gray-500">
                             No activations yet.
                           </td>
                         </tr>
@@ -224,6 +225,9 @@ export default function LicenseDetailDrawer() {
                           </td>
                           <td className="px-3 py-2 text-gray-400">
                             {activation.lastHeartbeatAt ? new Date(activation.lastHeartbeatAt).toLocaleString() : 'Never'}
+                          </td>
+                          <td className="px-3 py-2 text-gray-400">
+                            {activation.deactivatedAt ? new Date(activation.deactivatedAt).toLocaleString() : '—'}
                           </td>
                           <td className="px-3 py-2 text-right">
                             <button

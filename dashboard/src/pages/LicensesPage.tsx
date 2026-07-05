@@ -194,6 +194,7 @@ interface IssueFormState {
   holderName: string;
   holderEmail: string;
   expiresAt: string;
+  externalRef: string;
 }
 
 function IssueLicenseForm({ onIssued }: { onIssued: () => void }) {
@@ -205,6 +206,7 @@ function IssueLicenseForm({ onIssued }: { onIssued: () => void }) {
     holderName: '',
     holderEmail: '',
     expiresAt: '',
+    externalRef: '',
   });
   const [issuing, setIssuing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -244,6 +246,7 @@ function IssueLicenseForm({ onIssued }: { onIssued: () => void }) {
         policyId: form.policyId,
         holder: { name: form.holderName, email: form.holderEmail },
         ...(form.expiresAt ? { expiresAt: new Date(form.expiresAt).toISOString() } : {}),
+        ...(form.externalRef.trim() ? { externalRef: form.externalRef.trim() } : {}),
       });
       setIssued(response);
       onIssued();
@@ -348,6 +351,14 @@ function IssueLicenseForm({ onIssued }: { onIssued: () => void }) {
           required
           value={form.holderEmail}
           onChange={(e) => setForm({ ...form, holderEmail: e.target.value })}
+        />
+      </FormField>
+      <FormField id="issue-external-ref" label="External ref" hint="Optional — e.g. billing subscription id">
+        <input
+          id="issue-external-ref"
+          className={inputClasses}
+          value={form.externalRef}
+          onChange={(e) => setForm({ ...form, externalRef: e.target.value })}
         />
       </FormField>
       <div className="flex items-end">

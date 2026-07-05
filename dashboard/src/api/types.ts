@@ -97,7 +97,7 @@ export interface CreateEntitlementRequest {
 
 export type UpdateEntitlementRequest = Omit<CreateEntitlementRequest, 'code'>;
 
-// ─── Licenses (contract-only — /admin/licenses controller not yet in this checkout) ────────────
+// ─── Licenses (LicenseAdminController) ──────────────────────────────────────
 
 export type LicenseStatus = 'created' | 'active' | 'suspended' | 'expired' | 'revoked' | string;
 
@@ -112,6 +112,7 @@ export interface LicenseListItem {
   activeSeats: number;
   issuedAt: string;
   expiresAt: string | null;
+  externalRef: string | null;
 }
 
 export interface LicensePage {
@@ -129,6 +130,7 @@ export interface LicenseActivation {
   status: string;
   activatedAt: string;
   lastHeartbeatAt: string | null;
+  deactivatedAt: string | null;
 }
 
 /**
@@ -163,6 +165,7 @@ export interface IssueLicenseRequest {
   holder: { name: string; email: string };
   expiresAt?: string;
   seat?: number;
+  externalRef?: string;
 }
 
 /** LicenseAdminController.IssuedLicenseResponse — the token field is `token`, not `signedToken`. */
