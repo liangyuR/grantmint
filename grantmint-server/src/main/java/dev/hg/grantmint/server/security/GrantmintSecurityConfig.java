@@ -1,5 +1,6 @@
 package dev.hg.grantmint.server.security;
 
+import jakarta.servlet.DispatcherType;
 import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -19,9 +20,11 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 
 /**
  * Wires the three independent, path-scoped {@link SecurityFilterChain}s — the code-level expression
- * of blast-radius isolation. Each surface is evaluated by exactly one chain, ordered most-specific
- * first: validation (hottest path) → issuance → admin. Requests outside all three matchers (e.g.
- * actuator health) bypass security entirely. See docs/features/ADMIN_AND_API_AUTH.md.
+ * of blast-radius isolation — plus a lowest-precedence catch-all that default-denies everything
+ * else. Each surface is evaluated by exactly one chain, ordered most-specific first: validation
+ * (hottest path) → issuance → admin → catch-all. A route added outside the known prefixes is
+ * therefore denied until someone deliberately opens it, never silently public (2026-07-05 audit,
+ * GRANTMINT-146). See docs/features/ADMIN_AND_API_AUTH.md.
  *
  * <p>All chains are stateless (our own server-side session store, never a Spring HTTP session).
  * The validation and issuance chains are CSRF-disabled — header/bearer credentials cannot be sent
@@ -39,8 +42,9 @@ public class GrantmintSecurityConfig {
 
     /**
      * Chain 0 — OPENAPI docs. Most specific so it wins for doc/UI paths before any functional chain.
-     * Its policy is configurable because these endpoints sit outside the three auth surfaces: public
-     * by default, lockable to admin-only or fully disabled in production.
+     * Its policy is configurable because these endpoints sit outside the three auth surfaces:
+     * admin-gated by default ({@link GrantmintOpenApiProperties}), openable to public or fully
+     * disabled in production.
      */
     @Bean
     @Order(0)
@@ -144,6 +148,34 @@ public class GrantmintSecurityConfig {
                         .permitAll()
                         .anyRequest()
                         .hasRole("ADMIN"))
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(errors).accessDeniedHandler(errors))
+                .build();
+    }
+
+    /**
+     * Chain 4 — CATCH-ALL default-deny, no {@code securityMatcher} so it collects every request the
+     * four scoped chains did not claim. The explicit permits are the two surfaces that authenticate
+     * by other means: webhooks verify the provider's HMAC over the raw body in the controller
+     * (verify-before-parse — there is no bearer/cookie credential a filter could check), and the
+     * actuator lives on the loopback-bound management port, which inherits this filter chain; on the
+     * public port the actuator paths have no handler and 404 exactly as before. ERROR dispatches are
+     * permitted so Boot's internal re-dispatch to {@code /error} (a 404 inside a secured chain, an
+     * exception no advice handled) keeps rendering its real status — a direct external request to
+     * {@code /error} is a REQUEST dispatch and stays denied.
+     */
+    @Bean
+    @Order(4)
+    SecurityFilterChain catchAllDenyChain(HttpSecurity http, SecurityErrorResponder errors) throws Exception {
+        return http.csrf(csrf -> csrf.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.dispatcherTypeMatchers(DispatcherType.ERROR)
+                        .permitAll()
+                        .requestMatchers("/webhooks/**")
+                        .permitAll()
+                        .requestMatchers("/actuator/**")
+                        .permitAll()
+                        .anyRequest()
+                        .denyAll())
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(errors).accessDeniedHandler(errors))
                 .build();
     }
