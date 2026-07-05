@@ -35,10 +35,20 @@ class ArchitectureTest {
                         // Guard the legacy Java EE namespaces too, in case a stray transitive type slips in.
                         "javax.persistence..",
                         "javax.servlet..",
-                        "com.fasterxml.jackson..")
+                        // The minimal-codec rule: CanonicalJson/Base64Url are core's ONLY
+                        // serialization mechanism — the canonical bytes are the security contract,
+                        // and a general-purpose JSON library would be a second opinion about them.
+                        // Ban every JSON binding a contributor might plausibly reach for, not just
+                        // Jackson (M13 audit: the ban was Jackson-only, so gson/org.json could slip
+                        // in unnoticed).
+                        "com.fasterxml.jackson..",
+                        "com.google.gson..",
+                        "org.json..",
+                        "jakarta.json..",
+                        "javax.json..")
                 .because("grantmint-core must remain a pure, framework-agnostic crypto/issuance "
                         + "library so it stays reusable, trivially testable, and AOT-friendly "
-                        + "(it uses its own minimal codec, never Jackson).");
+                        + "(CanonicalJson/Base64Url are its only codec — never a JSON library).");
 
         rule.check(CORE_CLASSES);
     }

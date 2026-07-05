@@ -2,10 +2,13 @@ package dev.hg.grantmint.cli;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import dev.hg.grantmint.core.crypto.Ed25519Keys;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -64,6 +67,27 @@ class KeygenCommandTest {
 
         // The private key material must never be printed.
         assertThat(printed).doesNotContain(hexSeed);
+    }
+
+    @Test
+    void refusesToWriteWhereOwnerOnlyPermissionsCannotBeEnforced() throws Exception {
+        // A non-POSIX filesystem (Jimfs in Windows configuration) cannot take the 0600 attribute,
+        // so keygen must fail closed rather than write the seed with unknown permissions.
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(err, true, StandardCharsets.UTF_8));
+        try (FileSystem windows = Jimfs.newFileSystem(Configuration.windows())) {
+            Path keyFile = windows.getPath("C:\\").resolve("signing.key");
+            KeygenCommand command = new KeygenCommand();
+            command.out = keyFile;
+
+            assertThat(command.call()).isEqualTo(1);
+            assertThat(Files.exists(keyFile)).isFalse();
+            assertThat(err.toString(StandardCharsets.UTF_8)).contains("not on a POSIX filesystem");
+            assertThat(out.toString(StandardCharsets.UTF_8)).doesNotContain("Public key");
+        } finally {
+            System.setErr(originalErr);
+        }
     }
 
     @Test
