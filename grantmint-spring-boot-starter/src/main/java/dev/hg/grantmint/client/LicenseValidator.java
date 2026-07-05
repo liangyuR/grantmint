@@ -61,10 +61,12 @@ public final class LicenseValidator {
             return LicenseStatus.invalid(reasonOf(refused.reason()), null);
         }
         // Product binding: a valid token for someone else's product is not a license for this app.
+        // Reported as WRONG_PRODUCT, not INVALID_SIGNATURE — the credential is authentic, it just
+        // belongs to a different product; callers may want to say so ("this key is for X").
         if (props.getProduct() != null
                 && !props.getProduct().isBlank()
                 && !props.getProduct().equals(verified.product())) {
-            return LicenseStatus.invalid(LicenseStatus.Reason.INVALID_SIGNATURE, verified.keyId());
+            return LicenseStatus.invalid(LicenseStatus.Reason.WRONG_PRODUCT, verified.keyId());
         }
         return new LicenseStatus(
                 true,
@@ -132,12 +134,12 @@ public final class LicenseValidator {
         return switch (reason) {
             case EXPIRED -> LicenseStatus.Reason.EXPIRED;
             case NOT_YET_VALID -> LicenseStatus.Reason.NOT_YET_VALID;
-            case MALFORMED,
-                    ALG_NOT_ALLOWED,
-                    WRONG_TYPE,
-                    INVALID_SIGNATURE,
-                    UNSUPPORTED_VERSION,
-                    WRONG_PRODUCT -> LicenseStatus.Reason.INVALID_SIGNATURE;
+                // WRONG_PRODUCT is reserved on the verifier's taxonomy (it takes no product today —
+                // binding happens above in verifyOffline); mapped here so a future verifier-level
+                // binding surfaces the same way as the validator-level one.
+            case WRONG_PRODUCT -> LicenseStatus.Reason.WRONG_PRODUCT;
+            case MALFORMED, ALG_NOT_ALLOWED, WRONG_TYPE, INVALID_SIGNATURE, UNSUPPORTED_VERSION -> LicenseStatus.Reason
+                    .INVALID_SIGNATURE;
         };
     }
 

@@ -26,6 +26,8 @@ public record LicenseStatus(
         VALID,
         /** Malformed or forged token — never acceptable. */
         INVALID_SIGNATURE,
+        /** An authentic token, but for a different product than this app is configured for. */
+        WRONG_PRODUCT,
         EXPIRED,
         NOT_YET_VALID,
         REVOKED,
