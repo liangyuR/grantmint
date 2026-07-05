@@ -12,7 +12,6 @@ import dev.hg.grantmint.server.validation.ValidationCache;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -48,10 +47,6 @@ public class ExpirySweepJob {
 
     private static final Logger log = LoggerFactory.getLogger(ExpirySweepJob.class);
 
-    /** Non-terminal statuses the state machine allows EXPIRE from that the sweep also targets. */
-    private static final EnumSet<LicenseStatus> SWEEPABLE_STATUSES =
-            EnumSet.of(LicenseStatus.ACTIVE, LicenseStatus.SUSPENDED);
-
     private final LicenseRepository licenses;
     private final ValidationCache cache;
     private final AuditService audit;
@@ -73,7 +68,9 @@ public class ExpirySweepJob {
     @Transactional
     public void sweep() {
         OffsetDateTime now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
-        List<License> candidates = licenses.findExpiryCandidates(SWEEPABLE_STATUSES, now);
+        // The sweepable statuses (active/suspended — the states the machine allows EXPIRE from) are
+        // literal in the query so it provably matches ix_licenses_expiry_sweep's partial predicate.
+        List<License> candidates = licenses.findExpiryCandidates(now);
         int expiredCount = 0;
         for (License license : candidates) {
             // Lazy-loaded inside this transaction: each candidate may belong to a different policy

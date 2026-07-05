@@ -11,8 +11,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Verifies the Flyway migration set (V1 schema, V2 indexes) applies cleanly against a real
- * PostgreSQL and that the security-critical invariants of the schema hold. Booting the full
+ * Verifies the full Flyway migration set (V1 schema, V2 indexes, V3 admin auth, V4 key-prefix
+ * CHECK, V5 dead-index drop, V6 policy-code index, V7 audit index gaps) applies cleanly against a
+ * real PostgreSQL and that the security-critical invariants of the schema hold. Booting the full
  * Spring context here also exercises Hibernate {@code ddl-auto: validate}, proving the JPA
  * entity mapping agrees with the Flyway-created tables column-for-column.
  */
@@ -61,7 +62,19 @@ class SchemaMigrationTest extends PostgresIntegrationTest {
                         "ix_licenses_expiry_sweep",
                         "ix_activations_heartbeat",
                         "ix_licenses_entitlements_gin",
-                        "ix_policies_code"); // V6: the webhook policy-map resolver's code-only lookup
+                        "ix_policies_code", // V6: the webhook policy-map resolver's code-only lookup
+                        "ix_signing_keys_product", // V7: signer build + admin list by product
+                        "ix_licenses_status"); // V7: the licenses.active gauge sampled per scrape
+    }
+
+    @Test
+    void apiKeysProductIndexIsFullNotPartial() {
+        // V7 replaced V2's partial (WHERE revoked_at IS NULL) index: the admin key list must show
+        // revoked keys too, which the partial index could not cover once any key was revoked.
+        String indexDef = jdbc().queryForObject(
+                        "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'ix_api_keys_product'",
+                        String.class);
+        assertThat(indexDef).doesNotContainIgnoringCase("where");
     }
 
     @Test

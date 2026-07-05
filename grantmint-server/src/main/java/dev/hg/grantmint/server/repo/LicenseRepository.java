@@ -4,7 +4,6 @@ import dev.hg.grantmint.server.domain.License;
 import dev.hg.grantmint.server.domain.LicenseStatus;
 import jakarta.persistence.LockModeType;
 import java.time.OffsetDateTime;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,17 +52,22 @@ public interface LicenseRepository extends JpaRepository<License, UUID>, JpaSpec
     List<License> findByExternalRef(String externalRef);
 
     /**
-     * Expiry-sweep candidates: non-terminal licenses with a concrete expiry already in the past.
-     * The per-policy grace window is applied by the sweep job (M7).
+     * Expiry-sweep candidates: sweepable ({@code active}/{@code suspended}) licenses with a concrete
+     * expiry already in the past. The per-policy grace window is applied by the sweep job (M7).
      *
-     * <p>{@code status} is an {@code AttributeConverter}-backed enum ({@code LicenseStatusConverter}),
-     * not {@code @Enumerated}. The {@code in :statuses} comparison therefore relies on Hibernate 6
-     * applying the converter to the bound {@link LicenseStatus} values — correct on Spring Boot 3 /
-     * Hibernate 6, but the dependency is implicit, so callers pass {@code LicenseStatus} constants
-     * (e.g. {@code ACTIVE}, {@code SUSPENDED}), never their wire strings.
+     * <p>Native SQL with the status list as <b>literal text</b>, not a bind-parameter collection, on
+     * purpose: the partial index {@code ix_licenses_expiry_sweep} carries {@code WHERE status IN
+     * ('active','suspended')}, and PostgreSQL can only plan a partial index when the query's
+     * predicate provably implies the index's. A parameterized {@code in :statuses} stops being
+     * provable once the planner switches to a generic plan, silently degrading the sweep to a full
+     * scan (M13 audit) — the literal predicate matches the index's exactly, always. The status set
+     * here mirrors the state machine's EXPIRE-capable states; V2 documents the same pairing on the
+     * index side.
      */
-    @Query("select l from License l"
-            + " where l.status in :statuses and l.expiresAt is not null and l.expiresAt < :cutoff")
-    List<License> findExpiryCandidates(
-            @Param("statuses") Collection<LicenseStatus> statuses, @Param("cutoff") OffsetDateTime cutoff);
+    @Query(
+            value = "select * from licenses"
+                    + " where status in ('active', 'suspended')"
+                    + " and expires_at is not null and expires_at < :cutoff",
+            nativeQuery = true)
+    List<License> findExpiryCandidates(@Param("cutoff") OffsetDateTime cutoff);
 }
