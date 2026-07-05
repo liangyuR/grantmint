@@ -5,10 +5,12 @@
 # NOTE ON DOCS vs CODE: docs/deployment/DOCKER_SETUP.md documents a GraalVM
 # native-image primary Dockerfile plus a Gradle-based `Dockerfile.jvm`
 # fallback (./gradlew, build.gradle.kts). This repository is actually a
-# Maven multi-module reactor (pom.xml, ./mvnw) with no Gradle files and no
-# native-image build wired up yet — see GRANTMINT-111. This Dockerfile is the
-# fat-JAR fallback adapted to the real (Maven) build, per the task spec.
-# It intentionally lives at grantmint-server/Dockerfile rather than the doc's
+# Maven multi-module reactor (pom.xml, ./mvnw) with no Gradle files. The
+# native-image build DOES exist (`./mvnw -Pnative -pl grantmint-server
+# native:compile`, built and boot-smoked in CI and shipped per-arch by the
+# release workflow) but is distributed as a bare binary, not a container
+# image; this Dockerfile is the fat-JAR image adapted to the real (Maven)
+# build. It intentionally lives at grantmint-server/Dockerfile rather than the doc's
 # root Dockerfile.jvm so the module that owns the artifact owns the image
 # recipe too; the build CONTEXT is still the repo root (see docker-compose.yml)
 # because Maven needs the full multi-module reactor to build grantmint-server.

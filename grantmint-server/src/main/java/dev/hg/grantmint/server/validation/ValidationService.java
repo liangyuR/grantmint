@@ -27,10 +27,12 @@ import org.springframework.stereotype.Service;
  * unknown key id throws {@link NoSuchElementException} (404). See
  * docs/architecture/ARCHITECTURE.md (validation flow).
  *
- * <p><b>v1 scope.</b> The {@code fingerprint} is accepted but not yet matched against an activation —
- * machine binding and seat reporting land in M6. Status mutation (suspend/reinstate/revoke), and the
- * cache eviction those trigger, land in M7; until then a revoked license is enforced within the cache
- * TTL (the revocation-latency ceiling) or via an explicit {@link ValidationCache#evict}.
+ * <p><b>v1 scope.</b> The {@code fingerprint} is accepted but deliberately not matched against an
+ * activation: machine binding is enforced where seats are consumed ({@code /v1/licenses/activate}),
+ * while validate stays a pure license-health check any holder of the key ID can make — see
+ * docs/api/API_DOCUMENTATION.md (Validate). Fingerprint-aware validation is a possible future
+ * tightening, not a v1 behavior. Suspend/reinstate/revoke evict the cache on mutation; between
+ * evictions a status change is visible within the cache TTL (the revocation-latency ceiling).
  */
 @Service
 public class ValidationService {
@@ -69,7 +71,8 @@ public class ValidationService {
      * @param keyId the license key id to validate
      * @param requesterProductId the product the validation key is scoped to; the license must belong
      *     to it, or the call 404s rather than leaking another product's license
-     * @param fingerprint the optional machine fingerprint (accepted, not yet enforced — M6)
+     * @param fingerprint the optional machine fingerprint (accepted; deliberately unmatched in v1 —
+     *     binding is enforced at activation, see the class javadoc)
      * @throws NoSuchElementException if no such license is visible to this product (404)
      * @throws LicenseNotValidException if the license is authentic but not currently valid (422)
      */
