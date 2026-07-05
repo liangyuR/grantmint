@@ -5,8 +5,11 @@
 # formatting, the Locale.ROOT checkstyle lint, and the GraalVM native-image build
 # with a boot smoke against real Postgres. See docs/deployment/CI_CD.md.
 #
+# The dashboard job runs the operator console's own gates: ESLint, the vitest suite (which pins
+# the in-browser demo verifier to the same cross-verifier golden vector as the Java/Swift/Go
+# suites), and the tsc + vite production build.
+#
 # Deliberately absent for now:
-# - dashboard build — M11 is deferred.
 # - multi-arch (arm64) native builds — those belong to the release workflow
 #   (GRANTMINT-112); CI proves the image builds and boots on linux/amd64.
 name: ci
@@ -49,6 +52,35 @@ jobs:
           name: surefire-reports
           path: "**/target/surefire-reports/"
           retention-days: 7
+
+  dashboard:
+    name: dashboard lint + test + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22" # WebCrypto Ed25519 — the vitest suite verifies the golden vector with it
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test (demo verifier pinned to the cross-verifier vector)
+        run: npm test
+
+      - name: Build (tsc + vite)
+        run: npm run build
 
   # The slow, RAM-heavy tail: prove the single binary still builds under the AOT
   # closed-world model and boots against a real Postgres. If only this job is red,
@@ -94,7 +126,8 @@ jobs:
 
       # Boot smoke: the binary must come up against real Postgres (Flyway migrates
       # at boot) and report UP on the loopback-only management port. The full
-      # issue→activate→validate→revoke native cycle is tracked as GRANTMINT-116.
+      # issue→activate→validate→revoke native cycle lives in scripts/native-smoke.sh
+      # (needs an EMPTY postgres on 5433 — run it locally after AOT-visible changes).
       - name: Boot the binary and probe health
         env:
           GRANTMINT_DB_URL: jdbc:postgresql://localhost:5432/grantmint
