@@ -59,6 +59,12 @@ services:
       # first login.
       GRANTMINT_ADMIN_USERNAME: admin
       GRANTMINT_ADMIN_PASSWORD: changeme-admin-password
+      # The app defaults management.server.address to 127.0.0.1 (safe bare-JAR default). Inside
+      # a container that default would make the mapped 9090 unreachable — Docker's port mapping
+      # targets the container IP, not container loopback — so bind all container interfaces here
+      # and keep exposure scoped by the 127.0.0.1 host port mapping below (the in-container
+      # healthcheck keeps using loopback either way).
+      GRANTMINT_MANAGEMENT_ADDRESS: 0.0.0.0
     volumes:
       # Signing keys: the server resolves each product's private key from a
       # `private_key_ref` pointer (file:/env: schemes) registered per signing

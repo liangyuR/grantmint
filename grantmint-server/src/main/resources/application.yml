@@ -36,6 +36,12 @@ management:
     # and license counts. Bind/firewall this port to the private metrics network
     # (docs/operations/MONITORING_LOGGING.md).
     port: 9090
+    # Loopback by default so a bare-JAR deployment never exposes actuator on all interfaces by
+    # accident — scraping from another host is an explicit override, not a default. Containers
+    # need a non-loopback bind (Docker's port mapping targets the container IP, not container
+    # loopback): docker-compose sets GRANTMINT_MANAGEMENT_ADDRESS=0.0.0.0 and scopes exposure
+    # with its own 127.0.0.1 host port mapping instead.
+    address: ${GRANTMINT_MANAGEMENT_ADDRESS:127.0.0.1}
   endpoints:
     web:
       exposure:
