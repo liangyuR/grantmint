@@ -7,7 +7,9 @@
 #
 # The dashboard job runs the operator console's own gates: ESLint, the vitest suite (which pins
 # the in-browser demo verifier to the same cross-verifier golden vector as the Java/Swift/Go
-# suites), and the tsc + vite production build.
+# suites), and the tsc + vite production build. The verifiers job runs the Go and Swift halves
+# of that parity harness, and the verify job opens with scripts/check-fixture-parity.py so a
+# drifted copy of the golden vector fails fast (GRANTMINT-155).
 #
 # Deliberately absent for now:
 # - multi-arch (arm64) native builds — those belong to the release workflow
@@ -30,6 +32,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      # The pinned cross-verifier vector is duplicated as literals in five test
+      # suites (unavoidable across Java/Go/Swift/TS); grantmint-core's
+      # CrossVerifierFixtureTest is the source of truth. Fail fast if any copy
+      # drifted (GRANTMINT-155) — stdlib Python, no setup needed.
+      - name: Cross-verifier fixture drift guard
+        run: python3 scripts/check-fixture-parity.py
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -81,6 +90,34 @@ jobs:
 
       - name: Build (tsc + vite)
         run: npm run build
+
+  # The Go and Swift halves of the cross-verifier parity harness (GRANTMINT-155:
+  # previously these suites only ran locally — the fixture guard above is only
+  # meaningful if the suites it protects are CI-gated too). macOS runner because
+  # the Swift verifier is Apple CryptoKit; Go runs anywhere.
+  verifiers:
+    name: Go + Swift verifier parity suites
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: verifiers/go/go.mod
+          cache: false # stdlib-only module, no go.sum to key a cache on
+
+      - name: Go verifier tests
+        working-directory: verifiers/go
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo 'gofmt needed'; exit 1; }
+          go vet ./...
+          go test ./...
+
+      - name: Swift verifier tests
+        working-directory: verifiers/swift
+        run: swift test
 
   # The slow, RAM-heavy tail: prove the single binary still builds under the AOT
   # closed-world model and boots against a real Postgres. If only this job is red,
