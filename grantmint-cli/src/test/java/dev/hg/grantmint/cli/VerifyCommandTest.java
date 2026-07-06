@@ -119,6 +119,22 @@ class VerifyCommandTest {
     }
 
     @Test
+    void unsupportedFormatVersionExitsSix() {
+        // A validly-signed token declaring a future format version. It is authentic — the signature
+        // checks out — but a v1 CLI must fail closed with its own exit class (6), so a script can
+        // tell "upgrade your verifier" apart from a forgery (1) or an expiry (3).
+        KeyPair keyPair = Ed25519Keys.generate(new SecureRandom());
+        String publicKeyBase64 = publicKeyBase64Of(keyPair);
+        String token = issueVersioned(keyPair, TokenPayload.CURRENT_VERSION + 1, nowSeconds(), nowSeconds() + 3_600);
+
+        int exitCode = new CommandLine(new GrantmintCli())
+                .execute("verify", "--token", token, "--public-key", publicKeyBase64);
+
+        assertThat(exitCode).isEqualTo(6);
+        assertThat(out.toString(StandardCharsets.UTF_8)).contains("INVALID").contains("UNSUPPORTED_VERSION");
+    }
+
+    @Test
     void malformedPublicKeyExitsTwo() {
         int exitCode = new CommandLine(new GrantmintCli())
                 .execute("verify", "--token", "a.b.c", "--public-key", "not valid base64!!");
@@ -158,12 +174,21 @@ class VerifyCommandTest {
         return issueWithNbf(keyPair, issuedAt, (Long) notBefore, expiresAt, EntitlementSet.empty());
     }
 
+    private static String issueVersioned(KeyPair keyPair, int version, long issuedAt, long expiresAt) {
+        return issueVersioned(keyPair, version, issuedAt, null, expiresAt, EntitlementSet.empty());
+    }
+
     private static String issueWithNbf(
             KeyPair keyPair, long issuedAt, Long notBefore, long expiresAt, EntitlementSet entitlements) {
+        return issueVersioned(keyPair, TokenPayload.CURRENT_VERSION, issuedAt, notBefore, expiresAt, entitlements);
+    }
+
+    private static String issueVersioned(
+            KeyPair keyPair, int version, long issuedAt, Long notBefore, long expiresAt, EntitlementSet entitlements) {
         Ed25519Signer signer = new Ed25519Signer(keyPair.getPrivate(), "sk_test_1");
         LicenseTokenIssuer issuer = new LicenseTokenIssuer(signer);
         TokenPayload payload = new TokenPayload(
-                TokenPayload.CURRENT_VERSION,
+                version,
                 UUID.randomUUID().toString(),
                 "7QF4-2K9M-XR1T",
                 "acme-desktop",
