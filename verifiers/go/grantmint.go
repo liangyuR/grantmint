@@ -19,6 +19,10 @@
 //     non-empty string n/e, iat an integer, and ent an object are all required; con (object)
 //     and seat (an integer within int32, matching the reference's int parse) are optional but
 //     never wrong-typed; exp is a required key whose value may be null (perpetual);
+//   - optional product binding ([VerifyForProduct]): a caller-supplied expected product must
+//     equal the authenticated prd claim, checked between the format-version gate and the
+//     temporal window exactly like the reference — an expired sibling-product token is
+//     ErrWrongProduct, never ErrExpired in one verifier and ErrWrongProduct in another;
 //   - now >= exp is expired (exp exclusive); now < nbf is not yet valid (nbf optional).
 package grantmint
 
@@ -52,6 +56,11 @@ var (
 	// the verifier" apart from a corrupt token). A wrong-typed or out-of-int32-range ver stays
 	// ErrMalformed, exactly like the reference.
 	ErrUnsupportedVersion = errors.New("grantmint: unsupported token format version")
+	// ErrWrongProduct is the Java reference's WRONG_PRODUCT: an authentic token whose prd claim
+	// does not match the product the caller bound via VerifyForProduct — a sibling product's
+	// license signed by the same key pair, rejected after the format-version gate and before the
+	// temporal window.
+	ErrWrongProduct = errors.New("grantmint: token bound to a different product")
 )
 
 // b64 rejects the standard alphabet and '=' padding by construction (RawURLEncoding) and
@@ -59,9 +68,21 @@ var (
 var b64 = base64.RawURLEncoding.Strict()
 
 // Verify checks a Grantmint token offline against the raw 32-byte Ed25519 public key (hex),
-// as of now (Unix epoch seconds, UTC). It returns the authenticated payload claims: integers
-// as int64, objects as map[string]any, arrays as []any, plus string/bool/nil.
+// as of now (Unix epoch seconds, UTC), without binding it to a product. It returns the
+// authenticated payload claims: integers as int64, objects as map[string]any, arrays as []any,
+// plus string/bool/nil.
 func Verify(token, publicKeyHex string, now int64) (map[string]any, error) {
+	return VerifyForProduct(token, publicKeyHex, now, "")
+}
+
+// VerifyForProduct is [Verify] bound to an expected product: when expectedProduct is non-empty,
+// the authenticated prd claim must equal it or the token is rejected with ErrWrongProduct — the
+// Java reference's WRONG_PRODUCT, checked between the format-version gate and the temporal
+// window. This closes the cross-product acceptance gap in a deployment where one Ed25519 key
+// pair signs tokens for several products: a sibling product's authentic token would otherwise
+// verify here. Pass "" to skip the binding (the single-product case, where the embedded public
+// key already scopes trust).
+func VerifyForProduct(token, publicKeyHex string, now int64, expectedProduct string) (map[string]any, error) {
 	pub, err := hex.DecodeString(publicKeyHex)
 	if err != nil || len(pub) != ed25519.PublicKeySize {
 		return nil, ErrMalformed
@@ -170,6 +191,31 @@ func Verify(token, publicKeyHex string, now int64) (map[string]any, error) {
 			return nil, ErrMalformed
 		}
 	}
+	// exp is a REQUIRED key whose value may be null (perpetual), and a present exp/nbf must be
+	// an integer. Both are claim-TABLE checks, so they run before the format-version gate,
+	// exactly where the reference's payload parse rejects them: a ver=2 token missing exp is
+	// MALFORMED there, never UNSUPPORTED_VERSION. Absence of exp is malformed — never silently
+	// perpetual.
+	expRaw, present := claims["exp"]
+	if !present {
+		return nil, ErrMalformed
+	}
+	var exp *int64
+	if expRaw != nil {
+		value, isInt := expRaw.(int64)
+		if !isInt {
+			return nil, ErrMalformed
+		}
+		exp = &value
+	}
+	var nbf *int64
+	if nbfRaw, hasNbf := claims["nbf"]; hasNbf && nbfRaw != nil {
+		value, isInt := nbfRaw.(int64)
+		if !isInt {
+			return nil, ErrMalformed
+		}
+		nbf = &value
+	}
 	ver, ok := claims["ver"].(int64)
 	if !ok || ver < math.MinInt32 || ver > math.MaxInt32 {
 		return nil, ErrMalformed // wrong-typed or out-of-int32-range, like any other claim
@@ -177,29 +223,18 @@ func Verify(token, publicKeyHex string, now int64) (map[string]any, error) {
 	if ver != 1 {
 		return nil, ErrUnsupportedVersion // authentic but from a future format — fail closed
 	}
-	// exp is a REQUIRED key whose value may be null (perpetual). Absence is malformed —
-	// never silently perpetual.
-	expRaw, present := claims["exp"]
-	if !present {
-		return nil, ErrMalformed
+	// Product binding — an authentic token for a sibling product (same signing key pair) must
+	// not pass another product's gate. Sits between the version gate and the temporal window
+	// like the reference, so an expired sibling-product token reports ErrWrongProduct here and
+	// WRONG_PRODUCT there — the same verdict for the same bytes.
+	if expectedProduct != "" && claims["prd"] != expectedProduct {
+		return nil, ErrWrongProduct
 	}
-	if nbfRaw, hasNbf := claims["nbf"]; hasNbf && nbfRaw != nil {
-		nbf, isInt := nbfRaw.(int64)
-		if !isInt {
-			return nil, ErrMalformed
-		}
-		if now < nbf {
-			return nil, ErrNotYetValid
-		}
+	if nbf != nil && now < *nbf {
+		return nil, ErrNotYetValid
 	}
-	if expRaw != nil {
-		exp, isInt := expRaw.(int64)
-		if !isInt {
-			return nil, ErrMalformed
-		}
-		if now >= exp { // exp is exclusive
-			return nil, ErrExpired
-		}
+	if exp != nil && now >= *exp { // exp is exclusive
+		return nil, ErrExpired
 	}
 	return claims, nil
 }

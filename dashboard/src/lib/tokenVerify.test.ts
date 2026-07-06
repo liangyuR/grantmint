@@ -205,6 +205,51 @@ describe('verifyTokenOffline', () => {
     });
   });
 
+  // 2026-07-05 audit (GRANTMINT-153): product binding parity with the Java reference and starter,
+  // which both accept an expectedProduct argument the Go/Swift/TS verifiers used to lack.
+  it('binds the token to an expected product when one is supplied', async () => {
+    const bound = await verifyTokenOffline(TOKEN, PUBLIC_KEY_BASE64, IAT, 'prod_acme_notes');
+    expect(bound.signatureValid).toBe(true);
+    expect(bound.expired).toBe(false);
+    await expect(verifyTokenOffline(TOKEN, PUBLIC_KEY_BASE64, IAT, 'prod_other')).rejects.toMatchObject({
+      reason: 'wrong_product',
+    });
+    // Omitting expectedProduct skips the binding — existing callers keep their unbound behavior.
+    const unbound = await verifyTokenOffline(TOKEN, PUBLIC_KEY_BASE64, IAT);
+    expect(unbound.signatureValid).toBe(true);
+  });
+
+  it('checks product binding between the version gate and the temporal window', async () => {
+    // The reference checks prd after the format-version gate and ahead of nbf/exp, so an expired
+    // sibling-product token is WRONG_PRODUCT in both implementations (never EXPIRED in one of
+    // them), and a future-format token keeps UNSUPPORTED_VERSION even when the product mismatches.
+    await expect(
+      verifyTokenOffline(TOKEN, PUBLIC_KEY_BASE64, EXP + 1, 'prod_other'),
+    ).rejects.toMatchObject({ reason: 'wrong_product' });
+    const futureVersion = await signRaw(PINNED_HEADER_JSON, `{"exp":null,${REQUIRED_TAIL},"ver":2}`);
+    await expect(
+      verifyTokenOffline(futureVersion, PUBLIC_KEY_BASE64, IAT, 'prod_other'),
+    ).rejects.toMatchObject({ reason: 'unsupported_version' });
+  });
+
+  it('rejects claim-table violations as malformed even on a future-version token', async () => {
+    // exp presence/type are claim-TABLE checks: the reference's payload parse fails them as
+    // MALFORMED before its version gate ever runs, so a ver=2 token missing exp (or carrying a
+    // string exp/nbf) is malformed — never unsupported_version. Pins the cross-class precedence
+    // the Go verifier had to fix in the 2026-07-05 audit (GRANTMINT-153).
+    const cases = [
+      `{${REQUIRED_TAIL},"ver":2}`,
+      `{"exp":"x",${REQUIRED_TAIL},"ver":2}`,
+      `{"exp":null,${REQUIRED_TAIL},"nbf":"soon","ver":2}`,
+    ];
+    for (const payloadJson of cases) {
+      const token = await signRaw(PINNED_HEADER_JSON, payloadJson);
+      await expect(verifyTokenOffline(token, PUBLIC_KEY_BASE64, IAT)).rejects.toMatchObject({
+        reason: 'malformed',
+      });
+    }
+  });
+
   it('carries the alg/typ pin reasons distinctly, defaulting everything else to malformed', async () => {
     const payload = `{"exp":null,${REQUIRED_TAIL},"ver":1}`;
     const algConfused = await signRaw(

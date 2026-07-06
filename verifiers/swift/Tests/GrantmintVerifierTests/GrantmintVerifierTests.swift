@@ -52,9 +52,11 @@ final class GrantmintVerifierTests: XCTestCase {
     static let pinnedHeaderJSON = #"{"alg":"EdDSA","crv":"Ed25519","kid":"GMK1","typ":"GMT"}"#
 
     private func assertThrows(_ token: String, _ expected: LicenseError, at now: Int64 = iat,
+        expectedProduct: String? = nil,
         _ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertThrowsError(
-            try verifyLicense(token, publicKeyBase64: Self.publicKeyBase64, now: now),
+            try verifyLicense(
+                token, publicKeyBase64: Self.publicKeyBase64, now: now, expectedProduct: expectedProduct),
             message, file: file, line: line
         ) { error in
             XCTAssertEqual(error as? LicenseError, expected, message, file: file, line: line)
@@ -195,6 +197,49 @@ final class GrantmintVerifierTests: XCTestCase {
             headerJSON: Self.pinnedHeaderJSON,
             payloadJSON: #"{"exp":null,"# + Self.requiredTail + #","ver":2}"#)
         assertThrows(token, .unsupportedVersion, "unknown ver")
+    }
+
+    // 2026-07-05 audit (GRANTMINT-153): product binding parity with the Java reference and
+    // starter, which both accept an expectedProduct argument the Go/Swift/TS verifiers used to lack.
+    func testProductBinding() throws {
+        let lic = try verifyLicense(
+            Self.token, publicKeyBase64: Self.publicKeyBase64, now: Self.iat,
+            expectedProduct: "prod_acme_notes")
+        XCTAssertEqual(lic.product, "prod_acme_notes")
+        assertThrows(Self.token, .wrongProduct, expectedProduct: "prod_other", "sibling product")
+        // A nil expectedProduct skips the binding (the default parameter — existing callers keep
+        // their unbound behavior).
+        XCTAssertNoThrow(try verifyLicense(Self.token, publicKeyBase64: Self.publicKeyBase64, now: Self.iat))
+    }
+
+    func testProductBindingSitsBetweenVersionGateAndTemporalWindow() throws {
+        // The reference checks prd after the format-version gate and ahead of nbf/exp, so an
+        // expired sibling-product token is WRONG_PRODUCT in both implementations (never EXPIRED
+        // in one of them), and a future-format token keeps UNSUPPORTED_VERSION even when the
+        // product mismatches.
+        assertThrows(Self.token, .wrongProduct, at: Self.exp + 1, expectedProduct: "prod_other",
+            "expired sibling-product token")
+        let futureVersion = try Self.signRaw(
+            headerJSON: Self.pinnedHeaderJSON,
+            payloadJSON: #"{"exp":null,"# + Self.requiredTail + #","ver":2}"#)
+        assertThrows(futureVersion, .unsupportedVersion, expectedProduct: "prod_other",
+            "future-version wrong-product token")
+    }
+
+    func testClaimTableRejectsBeforeTheVersionGate() throws {
+        // exp presence/type are claim-TABLE checks: the reference's payload parse fails them as
+        // MALFORMED before its version gate ever runs, so a ver=2 token missing exp (or carrying
+        // a string exp/nbf) is malformed — never unsupportedVersion. Pins the cross-class
+        // precedence the Go verifier had to fix in the 2026-07-05 audit (GRANTMINT-153).
+        let cases: [(String, String)] = [
+            ("missing exp with ver=2", "{" + Self.requiredTail + #","ver":2}"#),
+            ("string exp with ver=2", #"{"exp":"x","# + Self.requiredTail + #","ver":2}"#),
+            ("string nbf with ver=2", #"{"exp":null,"# + Self.requiredTail + #","nbf":"soon","ver":2}"#),
+        ]
+        for (name, payloadJSON) in cases {
+            let token = try Self.signRaw(headerJSON: Self.pinnedHeaderJSON, payloadJSON: payloadJSON)
+            assertThrows(token, .malformed, name)
+        }
     }
 
     func testHeaderMissingKidIsMalformed() throws {

@@ -28,7 +28,11 @@
  *   4. Ed25519 signature verified over the received header+"."+payload segment bytes
  *   5. only if the signature is valid: payload parsed as strict JSON and the full claim table is
  *      enforced (exp present, nbf/iat/kid/lid/prd/pol/hld/ent/seat/con/ver — see checkClaims below)
- *   6. temporal window: now < nbf -> notYetValid; exp != null && now >= exp -> expired (exclusive)
+ *   6. optional product binding: a caller-supplied expectedProduct must equal the authenticated
+ *      prd claim ('wrong_product'), checked between the format-version gate and the temporal
+ *      window exactly like the reference — an expired sibling-product token is wrong_product,
+ *      never expired in one verifier and wrong_product in another
+ *   7. temporal window: now < nbf -> notYetValid; exp != null && now >= exp -> expired (exclusive)
  *
  * What's illustrative-only, not the SDK: this file is a from-scratch WebCrypto reimplementation for
  * the dashboard demo page, not a distributed client library — use the starter/CLI/SDKs for real
@@ -72,9 +76,14 @@ export interface OfflineVerificationResult {
  * demo can distinguish (2026-07-05 audit, GRANTMINT-148: the reject verdict always matched the
  * real verifiers, but `unsupported_version` used to collapse into `malformed` here while the Java
  * verifiers report it distinctly — telemetry could not tell "update the verifier" from "corrupt
- * token").
+ * token"; GRANTMINT-153 added `wrong_product` alongside the new expectedProduct binding).
  */
-export type TokenFailureReason = 'malformed' | 'alg_not_allowed' | 'wrong_type' | 'unsupported_version';
+export type TokenFailureReason =
+  | 'malformed'
+  | 'alg_not_allowed'
+  | 'wrong_type'
+  | 'unsupported_version'
+  | 'wrong_product';
 
 export class TokenFormatError extends Error {
   readonly reason: TokenFailureReason;
@@ -498,7 +507,11 @@ interface ClaimCheckResult {
   notYetValid: boolean;
 }
 
-function checkClaims(claims: Record<string, JsonValue>, nowSeconds: number): ClaimCheckResult {
+function checkClaims(
+  claims: Record<string, JsonValue>,
+  nowSeconds: number,
+  expectedProduct?: string,
+): ClaimCheckResult {
   // exp is REQUIRED on the wire; its value may be null (perpetual). Absence is malformed — never
   // silently perpetual (CROSS_VERIFIER_FIXTURES.md, perpetual licenses note).
   if (!('exp' in claims)) {
@@ -546,6 +559,17 @@ function checkClaims(claims: Record<string, JsonValue>, nowSeconds: number): Cla
     throw new TokenFormatError(`unsupported token version ${version}`, 'unsupported_version');
   }
 
+  // Product binding — an authentic token for a sibling product (same signing key pair) must not
+  // pass another product's gate. Sits between the version gate and the temporal window like the
+  // reference, so an expired sibling-product token reports wrong_product here and WRONG_PRODUCT
+  // there — the same verdict for the same bytes.
+  if (expectedProduct !== undefined && claims.prd !== expectedProduct) {
+    throw new TokenFormatError(
+      `token is for product '${String(claims.prd)}', not '${expectedProduct}'`,
+      'wrong_product',
+    );
+  }
+
   return {
     notYetValid: nbf !== undefined && nowSeconds < nbf,
     expired: exp !== undefined && nowSeconds >= exp,
@@ -589,11 +613,17 @@ function toDisplayPayload(payload: Record<string, JsonValue>): DecodedTokenPaylo
  * never display "VALID" for bytes every real verifier rejects). Throws for WebCrypto/import
  * failures too (caller should treat those as "verification unavailable," see
  * browserSupportsEd25519).
+ *
+ * When `expectedProduct` is provided, the authenticated `prd` claim must equal it or the token is
+ * rejected with reason 'wrong_product' — the Java reference's WRONG_PRODUCT, checked between the
+ * format-version gate and the temporal window. Omit it to skip the binding (the single-product
+ * case, where the embedded public key already scopes trust).
  */
 export async function verifyTokenOffline(
   token: string,
   publicKeyBase64: string,
   nowSeconds: number = Math.floor(Date.now() / 1000),
+  expectedProduct?: string,
 ): Promise<OfflineVerificationResult> {
   const parts = token.trim().split('.');
   if (parts.length !== 3 || parts.some((p) => p.length === 0)) {
@@ -670,7 +700,7 @@ export async function verifyTokenOffline(
     if (e instanceof TokenFormatError) throw e;
     throw new TokenFormatError('payload is not strict JSON');
   }
-  const { expired, notYetValid } = checkClaims(payload, nowSeconds);
+  const { expired, notYetValid } = checkClaims(payload, nowSeconds, expectedProduct);
 
   return {
     signatureValid: true,

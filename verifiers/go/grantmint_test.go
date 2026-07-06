@@ -191,6 +191,56 @@ func TestUnknownFormatVersionIsUnsupportedNotMalformed(t *testing.T) {
 	}
 }
 
+// 2026-07-05 audit (GRANTMINT-153): product binding parity with the Java reference and starter,
+// which both accept an expectedProduct argument the Go/Swift/TS verifiers used to lack.
+func TestProductBinding(t *testing.T) {
+	claims, err := VerifyForProduct(fixtureToken, fixturePublicHex, fixtureIat, "prod_acme_notes")
+	if err != nil {
+		t.Fatalf("matching product must verify: %v", err)
+	}
+	if claims["prd"] != "prod_acme_notes" {
+		t.Fatalf("unexpected prd: %v", claims["prd"])
+	}
+	if _, err := VerifyForProduct(fixtureToken, fixturePublicHex, fixtureIat, "prod_other"); !errors.Is(err, ErrWrongProduct) {
+		t.Fatalf("sibling-product binding: want ErrWrongProduct, got %v", err)
+	}
+	// An empty expectedProduct skips the binding — Verify is VerifyForProduct(..., "").
+	if _, err := VerifyForProduct(fixtureToken, fixturePublicHex, fixtureIat, ""); err != nil {
+		t.Fatalf("unbound verify must pass: %v", err)
+	}
+}
+
+func TestProductBindingSitsBetweenVersionGateAndTemporalWindow(t *testing.T) {
+	// The reference checks prd after the format-version gate and ahead of nbf/exp, so an expired
+	// sibling-product token is WRONG_PRODUCT in both implementations (never EXPIRED in one of
+	// them), and a future-format token keeps UNSUPPORTED_VERSION even when the product mismatches.
+	if _, err := VerifyForProduct(fixtureToken, fixturePublicHex, fixtureExp+1, "prod_other"); !errors.Is(err, ErrWrongProduct) {
+		t.Fatalf("expired wrong-product token: want ErrWrongProduct, got %v", err)
+	}
+	futureVersion := signRaw(t, pinnedHeaderJSON, `{"exp":null,`+requiredTail+`,"ver":2}`)
+	if _, err := VerifyForProduct(futureVersion, fixturePublicHex, fixtureIat, "prod_other"); !errors.Is(err, ErrUnsupportedVersion) {
+		t.Fatalf("future-version wrong-product token: want ErrUnsupportedVersion, got %v", err)
+	}
+}
+
+func TestClaimTableRejectsBeforeTheVersionGate(t *testing.T) {
+	// exp presence/type are claim-TABLE checks: the reference's payload parse fails them as
+	// MALFORMED before its version gate ever runs, so a ver=2 token missing exp (or carrying a
+	// string exp) must be malformed here too — never UNSUPPORTED_VERSION. Guards the ordering
+	// fix from the 2026-07-05 audit (GRANTMINT-153).
+	cases := map[string]string{
+		"missing exp with ver=2": `{` + requiredTail + `,"ver":2}`,
+		"string exp with ver=2":  `{"exp":"x",` + requiredTail + `,"ver":2}`,
+		"string nbf with ver=2":  `{"exp":null,` + requiredTail + `,"nbf":"soon","ver":2}`,
+	}
+	for name, payloadJSON := range cases {
+		token := signRaw(t, pinnedHeaderJSON, payloadJSON)
+		if _, err := Verify(token, fixturePublicHex, fixtureIat); !errors.Is(err, ErrMalformed) {
+			t.Fatalf("%s: want ErrMalformed, got %v", name, err)
+		}
+	}
+}
+
 func TestHeaderMissingKidIsMalformed(t *testing.T) {
 	// The reference decodeHeader requires all four header fields as strings; a validly-signed
 	// token whose header drops kid must be malformed here too.

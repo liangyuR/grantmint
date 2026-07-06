@@ -21,7 +21,11 @@
 //      ent a required object of flag | limit | string values; con (object) and seat (integer)
 //      optional but never wrong-typed; exp a required key whose value may be null (perpetual);
 //      nbf genuinely optional;
-//   5. now >= exp is expired (exp exclusive); now < nbf is not yet valid (nbf inclusive).
+//   5. optional product binding: a caller-supplied expectedProduct must equal the authenticated
+//      prd claim (wrongProduct), checked between the format-version gate and the temporal window
+//      exactly like the reference — an expired sibling-product token is wrongProduct, never
+//      expired in one verifier and wrongProduct in another;
+//   6. now >= exp is expired (exp exclusive); now < nbf is not yet valid (nbf inclusive).
 
 import CryptoKit
 import Foundation
@@ -35,7 +39,12 @@ public enum LicenseError: Error, Equatable {
     /// declare a format version this verifier does not know — rejected fail-closed with its own
     /// reason, so telemetry can tell "update the verifier" apart from a corrupt token. A wrong-typed
     /// or out-of-int32-range `ver` stays `malformed`, exactly like the reference.
-    case malformed, algNotAllowed, wrongType, badSignature, unsupportedVersion, expired, notYetValid, badKey
+    /// `wrongProduct` is the reference's WRONG_PRODUCT: an authentic token whose `prd` claim does
+    /// not match the product the caller bound via `expectedProduct` — a sibling product's license
+    /// signed by the same key pair, rejected after the format-version gate and before the temporal
+    /// window.
+    case malformed, algNotAllowed, wrongType, badSignature, unsupportedVersion, wrongProduct,
+        expired, notYetValid, badKey
 }
 
 public struct VerifiedLicense {
@@ -52,7 +61,15 @@ public struct VerifiedLicense {
 /// Verifies a Grantmint signed token fully offline, as of `now` (epoch seconds, UTC).
 /// `publicKeyBase64` is standard base64 of the 32-byte raw RFC 8032 Ed25519 public key —
 /// printed by `grantmint keygen` when the key pair is created.
-public func verifyLicense(_ token: String, publicKeyBase64: String, now: Int64) throws -> VerifiedLicense {
+///
+/// When `expectedProduct` is non-nil, the authenticated `prd` claim must equal it or the token is
+/// rejected with `LicenseError.wrongProduct` — the Java reference's WRONG_PRODUCT, checked between
+/// the format-version gate and the temporal window. This closes the cross-product acceptance gap
+/// in a deployment where one Ed25519 key pair signs tokens for several products; pass nil to skip
+/// the binding (the single-product case, where the embedded public key already scopes trust).
+public func verifyLicense(
+    _ token: String, publicKeyBase64: String, now: Int64, expectedProduct: String? = nil
+) throws -> VerifiedLicense {
     guard let publicKeyRaw = Data(base64Encoded: publicKeyBase64), publicKeyRaw.count == 32,
         let key = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKeyRaw)
     else { throw LicenseError.badKey }
@@ -139,7 +156,13 @@ public func verifyLicense(_ token: String, publicKeyBase64: String, now: Int64) 
     }
     guard ver == 1 else { throw LicenseError.unsupportedVersion }
 
-    // 5) Temporal window: nbf inclusive, exp exclusive.
+    // 5) Product binding — an authentic token for a sibling product (same signing key pair) must
+    //    not pass another product's gate. Sits between the version gate and the temporal window
+    //    like the reference, so an expired sibling-product token reports wrongProduct here and
+    //    WRONG_PRODUCT there — the same verdict for the same bytes.
+    if let expectedProduct, prd != expectedProduct { throw LicenseError.wrongProduct }
+
+    // 6) Temporal window: nbf inclusive, exp exclusive.
     if let nbf, now < nbf { throw LicenseError.notYetValid }
     if let exp, now >= exp { throw LicenseError.expired }
 
