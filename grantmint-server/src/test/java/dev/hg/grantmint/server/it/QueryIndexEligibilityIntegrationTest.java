@@ -71,6 +71,23 @@ class QueryIndexEligibilityIntegrationTest extends PostgresIntegrationTest {
                 .containsPattern("ix_activations_(license_active|heartbeat)");
     }
 
+    @Test
+    void globalSeatGaugeCountCanUseThePartialActivationsIndex() {
+        RecordingStatementInspector.clear();
+        activations.countActive();
+        String sql = RecordingStatementInspector.lastContaining("machine_activations");
+
+        String plan = explainGenericPlanWithoutSeqScan(sql);
+
+        // countActive() backs the grantmint.seats.used gauge: a bare count over status = 'active'.
+        // Like its per-license sibling above, the literal predicate must provably imply a partial
+        // status='active' index's predicate from the statement text alone; either V2 partial index
+        // covers every counted row, so whichever the planner names proves eligibility.
+        assertThat(plan)
+                .as("the generated SQL must be servable by a partial status='active' index (V2):%n%s%n%s", sql, plan)
+                .containsPattern("ix_activations_(license_active|heartbeat)");
+    }
+
     /**
      * EXPLAIN the given JDBC-parameterized SQL as PostgreSQL's <em>generic</em> plan with
      * sequential scans priced out: the resulting plan names an index if and only if the statement
@@ -84,11 +101,11 @@ class QueryIndexEligibilityIntegrationTest extends PostgresIntegrationTest {
         jdbc.execute("SET LOCAL plan_cache_mode = force_generic_plan");
         jdbc.execute("PREPARE index_eligibility_probe AS " + numbered);
         try {
-            return String.join(
-                    "\n",
-                    jdbc.queryForList(
-                            "EXPLAIN EXECUTE index_eligibility_probe(" + String.join(", ", literalArgs) + ")",
-                            String.class));
+            // A zero-parameter statement must be EXECUTEd bare: `EXECUTE probe()` is a syntax error.
+            String execute = literalArgs.length == 0
+                    ? "EXPLAIN EXECUTE index_eligibility_probe"
+                    : "EXPLAIN EXECUTE index_eligibility_probe(" + String.join(", ", literalArgs) + ")";
+            return String.join("\n", jdbc.queryForList(execute, String.class));
         } finally {
             jdbc.execute("DEALLOCATE index_eligibility_probe");
         }
