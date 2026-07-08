@@ -1,5 +1,6 @@
 package dev.hg.grantmint.server.admin;
 
+import dev.hg.grantmint.core.entitlement.EntitlementKey;
 import dev.hg.grantmint.core.entitlement.EntitlementSet;
 import dev.hg.grantmint.server.domain.Entitlement;
 import dev.hg.grantmint.server.domain.Policy;
@@ -107,6 +108,13 @@ public class PolicyEntitlementService {
 
     @Transactional
     public Entitlement createEntitlement(UUID policyId, String code, String valueType, Object rawValue) {
+        // Same canonical grammar the token codec, all four SDK verifiers, and the DB CHECK
+        // (ck_entitlements_code_fmt) enforce — validated here so a bad code is a clean 400
+        // bad_request, not a raw constraint-violation surprise (GRANTMINT-170).
+        if (code == null || !EntitlementKey.isCanonical(code)) {
+            throw new IllegalArgumentException(
+                    "entitlement code must be canonical snake_case matching ^[a-z][a-z0-9_]{0,62}$, got: " + code);
+        }
         Policy policy = getPolicy(policyId);
         Map<String, Object> valueMap = buildValueMap(valueType, rawValue);
         Entitlement entitlement = new Entitlement();

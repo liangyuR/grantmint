@@ -46,6 +46,9 @@ final class StripeSignatureVerifier {
     }
 
     void verify(WebhookRequest request) throws WebhookSignatureException {
+        // An absent header is safe here: WebhookRequest.header() returns "" (never null) for a
+        // missing name, which falls through to the malformed-header rejection below — pinned by
+        // aMissingSignatureHeaderIsRejectedNotAnNpe.
         String header = request.header("stripe-signature");
         long timestamp = 0;
         List<String> candidates = new ArrayList<>();

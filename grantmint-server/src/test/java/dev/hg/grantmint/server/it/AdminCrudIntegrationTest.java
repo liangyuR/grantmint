@@ -182,4 +182,50 @@ class AdminCrudIntegrationTest extends PostgresIntegrationTest {
         mockMvc.perform(delete("/admin/products/" + productId).header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent());
     }
+
+    @Test
+    void nonCanonicalEntitlementCodeIsACleanBadRequestNotAConstraintViolation() throws Exception {
+        // The canonical grammar ^[a-z][a-z0-9_]{0,62}$ was previously enforced only by the DB CHECK
+        // (ck_entitlements_code_fmt), so a bad code surfaced as a raw constraint violation. The
+        // service now validates via core's EntitlementKey.isCanonical — one grammar, clean 400
+        // (2026-07 audit, GRANTMINT-170).
+        String token = adminSessionToken();
+        MvcResult productResult = mockMvc.perform(post("/admin/products")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"slug\":\"code-fmt-app\",\"name\":\"Code Fmt App\",\"description\":\"\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        UUID productId = UUID.fromString(objectMapper
+                .readTree(productResult.getResponse().getContentAsString())
+                .get("id")
+                .asText());
+        MvcResult policyResult = mockMvc.perform(post("/admin/products/" + productId + "/policies")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"pro\",\"name\":\"Pro Tier\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        UUID policyId = UUID.fromString(objectMapper
+                .readTree(policyResult.getResponse().getContentAsString())
+                .get("id")
+                .asText());
+
+        String[] badCodes = {"MAX_DEVICES", "max-devices", "9lives", "_leading", "", "a" + "b".repeat(63)};
+        for (String badCode : badCodes) {
+            mockMvc.perform(post("/admin/policies/" + policyId + "/entitlements")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"code\":\"" + badCode + "\",\"valueType\":\"flag\",\"value\":true}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("bad_request"));
+        }
+
+        // The canonical spelling of the same capability sails through.
+        mockMvc.perform(post("/admin/policies/" + policyId + "/entitlements")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"max_devices\",\"valueType\":\"flag\",\"value\":true}"))
+                .andExpect(status().isCreated());
+    }
 }

@@ -23,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -95,8 +96,18 @@ public class LicenseAdminController {
         Specification<License> spec = buildSpec(status, holderEmail, productId, policyId, keyId);
         Pageable pageable = PageRequest.of(resolvedPage, resolvedSize, Sort.by(Sort.Direction.DESC, "issuedAt"));
         Page<License> results = licenses.findAll(spec, pageable);
-        List<LicenseSummaryView> items = results.getContent().stream()
-                .map(l -> LicenseSummaryView.of(l, activations.countActiveByKeyId(l.getKeyId())))
+        // One grouped count for the whole page instead of a count query per row (post-M13 audit's
+        // bounded N+1); licenses absent from the result have zero active seats.
+        List<License> content = results.getContent();
+        Map<UUID, Long> seatCounts = content.isEmpty()
+                ? Map.of()
+                : activations
+                        .countActiveByLicenseIds(
+                                content.stream().map(License::getId).toList())
+                        .stream()
+                        .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
+        List<LicenseSummaryView> items = content.stream()
+                .map(l -> LicenseSummaryView.of(l, seatCounts.getOrDefault(l.getId(), 0L)))
                 .toList();
         return new LicenseListResponse(items, resolvedPage, resolvedSize, results.getTotalElements());
     }

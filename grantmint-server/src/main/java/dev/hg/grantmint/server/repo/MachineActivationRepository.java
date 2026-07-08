@@ -34,6 +34,16 @@ public interface MachineActivationRepository extends JpaRepository<MachineActiva
     @Query("select count(a) from MachineActivation a" + " where a.license.keyId = :keyId and a.status = 'active'")
     long countActiveByKeyId(@Param("keyId") String keyId);
 
+    /**
+     * Active seat counts for a whole page of licenses in ONE query — the admin license list used to
+     * issue {@link #countActiveByKeyId} once per row (a bounded N+1, post-M13 audit). Licenses with
+     * no active seats simply have no row here; callers default them to zero. Same
+     * literal-{@code 'active'} discipline as the counts above so the partial index stays eligible.
+     */
+    @Query("select a.license.id, count(a) from MachineActivation a"
+            + " where a.license.id in :licenseIds and a.status = 'active' group by a.license.id")
+    List<Object[]> countActiveByLicenseIds(@Param("licenseIds") List<UUID> licenseIds);
+
     /** Total occupied seats — backs the {@code grantmint.seats.used} gauge, sampled on scrape. */
     @Query("select count(a) from MachineActivation a where a.status = 'active'")
     long countActive();

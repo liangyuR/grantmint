@@ -91,6 +91,22 @@ class StripeSignatureVerifierPropertyTest {
                 .hasMessageContaining("tolerance");
     }
 
+    /**
+     * An absent Stripe-Signature header is an unauthenticated request and must surface as the same
+     * clean {@link WebhookSignatureException} (→ 400) as a bad signature — never an NPE/500. Safe
+     * today because {@link WebhookRequest#header} returns {@code ""} for a missing name; this pin
+     * keeps that contract from regressing (flagged by the post-M13 audit as a suspected NPE).
+     */
+    @Property(tries = 100)
+    void aMissingSignatureHeaderIsRejectedNotAnNpe(
+            @ForAll @NotBlank @StringLength(min = 8, max = 32) String secret, @ForAll @Size(max = 128) byte[] body) {
+        StripeSignatureVerifier verifier = new StripeSignatureVerifier(secret, TOLERANCE, CLOCK);
+
+        assertThatThrownBy(() -> verifier.verify(new WebhookRequest(body, Map.of())))
+                .isInstanceOf(WebhookSignatureException.class)
+                .hasMessageContaining("malformed Stripe-Signature header");
+    }
+
     @Property(tries = 200)
     void rotationHeadersWithOneValidV1AmongInvalidOnesVerify(
             @ForAll @NotBlank @StringLength(min = 8, max = 32) String secret, @ForAll @Size(max = 128) byte[] body) {
