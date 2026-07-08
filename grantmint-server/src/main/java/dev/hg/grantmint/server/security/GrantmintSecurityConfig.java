@@ -1,13 +1,17 @@
 package dev.hg.grantmint.server.security;
 
+import static org.springframework.security.config.Customizer.withDefaults;
+
 import jakarta.servlet.DispatcherType;
 import java.time.Clock;
+import java.util.List;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -16,7 +20,11 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
  * Wires the three independent, path-scoped {@link SecurityFilterChain}s — the code-level expression
@@ -32,7 +40,11 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
  * M11 dashboard flow); see the admin chain below.
  */
 @Configuration
-@EnableConfigurationProperties({GrantmintAdminProperties.class, GrantmintOpenApiProperties.class})
+@EnableConfigurationProperties({
+    GrantmintAdminProperties.class,
+    GrantmintOpenApiProperties.class,
+    GrantmintCorsProperties.class
+})
 public class GrantmintSecurityConfig {
 
     /** OpenAPI doc + Swagger UI paths (springdoc), gated by {@link GrantmintOpenApiProperties}. */
@@ -57,6 +69,8 @@ public class GrantmintSecurityConfig {
             throws Exception {
         http.securityMatcher(OPENAPI_PATHS)
                 .csrf(csrf -> csrf.disable())
+                .cors(withDefaults())
+                .headers(GrantmintSecurityConfig::explicitResponseHeaders)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         switch (openApi.getAccess()) {
             case PUBLIC -> http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
@@ -79,6 +93,8 @@ public class GrantmintSecurityConfig {
             throws Exception {
         return http.securityMatcher("/v1/licenses/**")
                 .csrf(csrf -> csrf.disable())
+                .cors(withDefaults())
+                .headers(GrantmintSecurityConfig::explicitResponseHeaders)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(new ValidationKeyAuthFilter(apiKeys), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth.anyRequest().hasAuthority("SCOPE_VALIDATION"))
@@ -93,6 +109,8 @@ public class GrantmintSecurityConfig {
             throws Exception {
         return http.securityMatcher("/issuance/**")
                 .csrf(csrf -> csrf.disable())
+                .cors(withDefaults())
+                .headers(GrantmintSecurityConfig::explicitResponseHeaders)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(new IssuanceKeyAuthFilter(apiKeys), UsernamePasswordAuthenticationFilter.class)
                 // Per-method split: lifecycle mutations (suspend/reinstate/revoke) demand SCOPE_REVOKE,
@@ -141,6 +159,8 @@ public class GrantmintSecurityConfig {
                 .csrf(csrf -> csrf.csrfTokenRepository(csrfRepository)
                         .csrfTokenRequestHandler(csrfHandler)
                         .requireCsrfProtectionMatcher(cookieAuthenticatedWrite))
+                .cors(withDefaults())
+                .headers(GrantmintSecurityConfig::explicitResponseHeaders)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(
                         new AdminSessionAuthFilter(sessions, properties), UsernamePasswordAuthenticationFilter.class)
@@ -167,6 +187,8 @@ public class GrantmintSecurityConfig {
     @Order(4)
     SecurityFilterChain catchAllDenyChain(HttpSecurity http, SecurityErrorResponder errors) throws Exception {
         return http.csrf(csrf -> csrf.disable())
+                .cors(withDefaults())
+                .headers(GrantmintSecurityConfig::explicitResponseHeaders)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth.dispatcherTypeMatchers(DispatcherType.ERROR)
                         .permitAll()
@@ -178,6 +200,50 @@ public class GrantmintSecurityConfig {
                         .denyAll())
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(errors).accessDeniedHandler(errors))
                 .build();
+    }
+
+    /**
+     * One CORS source shared by every chain. With no configured origins it answers {@code null} for
+     * every request, so Spring emits NO CORS headers and browsers enforce same-origin — the shipped
+     * default. With origins configured ({@link GrantmintCorsProperties}), exact-match credentialed
+     * CORS covers the dashboard's cookie/XSRF flows and the API-key headers; preflights from any
+     * unlisted origin are rejected. Previously no CORS policy existed at all — safe, but only by
+     * omission (2026-07 audit, GRANTMINT-168).
+     */
+    @Bean
+    CorsConfigurationSource corsConfigurationSource(GrantmintCorsProperties cors) {
+        if (cors.allowedOrigins().isEmpty()) {
+            return request -> null;
+        }
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.copyOf(cors.allowedOrigins()));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of(
+                "Authorization",
+                "Content-Type",
+                "X-XSRF-TOKEN",
+                "X-Grantmint-Issuance-Key",
+                "X-Grantmint-License-Key"));
+        config.setAllowCredentials(true);
+        config.setMaxAge(3600L);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }
+
+    /**
+     * The explicit response-header policy every chain applies — previously Spring Security's
+     * implicit defaults, safe but not auditable (2026-07 audit, GRANTMINT-168). nosniff, DENY
+     * framing, HSTS, and no-store caching restate the defaults as declared policy;
+     * {@code Referrer-Policy: no-referrer} is additional — a key ID or token fragment in an
+     * operator's URL must never leak into a third party's {@code Referer} header.
+     */
+    private static void explicitResponseHeaders(HeadersConfigurer<HttpSecurity> headers) {
+        headers.contentTypeOptions(withDefaults())
+                .frameOptions(HeadersConfigurer.FrameOptionsConfig::deny)
+                .httpStrictTransportSecurity(withDefaults())
+                .referrerPolicy(ref -> ref.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                .cacheControl(withDefaults());
     }
 
     /**
