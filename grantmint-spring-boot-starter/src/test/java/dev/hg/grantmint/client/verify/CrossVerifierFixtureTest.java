@@ -77,6 +77,20 @@ class CrossVerifierFixtureTest {
     }
 
     @Test
+    void paddedPayloadSegmentOfThePinnedVectorIsMalformedNotInvalidSignature() {
+        // The reason-parity vector (GRANTMINT-166): '='-pad the authentic token's payload segment and
+        // every verifier must say MALFORMED — structure is gate zero, checked before any signature
+        // work, so the reason cannot drift to INVALID_SIGNATURE/FORGED in any implementation.
+        String[] parts = TOKEN.split("\\.");
+        String paddedPayload = parts[0] + "." + parts[1] + "=." + parts[2];
+
+        assertThatThrownBy(() -> verifier.verifyAt(paddedPayload, Instant.ofEpochSecond(IAT)))
+                .isInstanceOf(TokenVerificationException.class)
+                .satisfies(e -> assertThat(((TokenVerificationException) e).reason())
+                        .isEqualTo(TokenVerificationException.Reason.MALFORMED));
+    }
+
+    @Test
     void aTamperedPayloadCharacterFailsTheSignature() {
         int payloadMiddle = TOKEN.indexOf('.') + 10;
         char original = TOKEN.charAt(payloadMiddle);

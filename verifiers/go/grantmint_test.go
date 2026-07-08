@@ -76,6 +76,13 @@ func TestPaddedAndStandardAlphabetSegmentsAreMalformed(t *testing.T) {
 	if _, err := Verify(padded, fixturePublicHex, fixtureIat); !errors.Is(err, ErrMalformed) {
 		t.Fatalf("padded segment must be malformed, got %v", err)
 	}
+	// The reason-parity vector (GRANTMINT-166): a padded PAYLOAD segment on the authentic token is
+	// malformed in every verifier — structure is gate zero, so the reason must never drift to
+	// bad-signature in an implementation that checks the (doomed) signature first.
+	paddedPayload := parts[0] + "." + parts[1] + "=." + parts[2]
+	if _, err := Verify(paddedPayload, fixturePublicHex, fixtureIat); !errors.Is(err, ErrMalformed) {
+		t.Fatalf("padded payload segment must be malformed, got %v", err)
+	}
 	standard := parts[0] + "." + parts[1] + ".+" + parts[2][1:] // '+' is standard base64, not URL-safe
 	if _, err := Verify(standard, fixturePublicHex, fixtureIat); !errors.Is(err, ErrMalformed) {
 		t.Fatalf("standard-alphabet segment must be malformed, got %v", err)
@@ -91,8 +98,11 @@ func TestTamperedPayloadIsRejected(t *testing.T) {
 		tampered[10] = 'A'
 	}
 	token := parts[0] + "." + string(tampered) + "." + parts[2]
-	if _, err := Verify(token, fixturePublicHex, fixtureIat); !errors.Is(err, ErrBadSignature) && !errors.Is(err, ErrMalformed) {
-		t.Fatalf("tampered payload must be rejected, got %v", err)
+	// A mid-segment character flip keeps the payload valid strict base64url, and the signature is
+	// checked before any claim parsing — so the verdict is exactly ErrBadSignature, matching the
+	// Swift suite's strict .badSignature pin (this previously accepted ErrMalformed too).
+	if _, err := Verify(token, fixturePublicHex, fixtureIat); !errors.Is(err, ErrBadSignature) {
+		t.Fatalf("tampered payload must be exactly ErrBadSignature, got %v", err)
 	}
 }
 
@@ -172,6 +182,12 @@ func TestValidlySignedButNonStrictPayloadsAreMalformed(t *testing.T) {
 		// yields distinct types) — pinned anyway so the four suites assert the same vectors.
 		"boolean ver":     `{"exp":null,` + requiredTail + `,"ver":true}`,
 		"ent array value": `{"ent":{"tier":[1,2]},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}`,
+		// ent keys must already be canonical snake_case (^[a-z][a-z0-9_]{0,62}$). The collision
+		// pair is JSON-distinct, so the duplicate-key guard cannot see it — a verifier that
+		// normalized instead of rejecting would collapse the two last-wins while another SDK keeps
+		// them distinct, splitting entitlement semantics for the same signed bytes.
+		"non-canonical ent key":                  `{"ent":{"MAX_DEVICES":5},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}`,
+		"ent keys colliding after normalization": `{"ent":{"MAX_DEVICES":5,"max_devices":10},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}`,
 	}
 	for name, payloadJSON := range cases {
 		token := signRaw(t, pinnedHeaderJSON, payloadJSON)

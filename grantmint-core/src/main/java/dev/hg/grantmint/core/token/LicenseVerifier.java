@@ -89,12 +89,19 @@ public final class LicenseVerifier {
 
     private static VerificationResult verify(
             String token, Function<String, PublicKey> resolver, Clock clock, String expectedProductId) {
-        // 1. Structure.
+        // 1. Structure — segment shape, strict base64url decodability of ALL THREE segments, and a
+        // header carrying the required string fields. Every segment is decoded eagerly, before the
+        // header gates and the signature, exactly like the starter/Go/Swift/TS verifiers: a
+        // corrupt or padded segment is MALFORMED in all five implementations, never FORGED via a
+        // signature check that a broken segment had already doomed.
         SignedToken parts;
         TokenHeader header;
+        byte[] signature;
         try {
             parts = SignedToken.parse(token);
             header = TokenCodec.decodeHeader(parts.headerSegment());
+            parts.payloadBytes();
+            signature = parts.signatureBytes();
         } catch (MalformedTokenException | IllegalArgumentException | ArithmeticException e) {
             // Wrong segment count, undecodable base64/JSON, or a header missing required string fields.
             return VerificationResult.failure(FailureReason.MALFORMED);
@@ -111,16 +118,10 @@ public final class LicenseVerifier {
             return VerificationResult.failure(FailureReason.WRONG_TYPE);
         }
 
-        // 3. Signature over the RECEIVED bytes. Unknown key id or undecodable signature => forged.
+        // 3. Signature over the RECEIVED bytes. Unknown key id => forged.
         PublicKey publicKey = resolver.apply(header.kid());
         if (publicKey == null) {
             return VerificationResult.failure(FailureReason.FORGED);
-        }
-        byte[] signature;
-        try {
-            signature = parts.signatureBytes();
-        } catch (IllegalArgumentException badBase64) {
-            return VerificationResult.failure(FailureReason.MALFORMED);
         }
         if (!new Ed25519Verifier(publicKey).verify(parts.signingInput(), signature)) {
             return VerificationResult.failure(FailureReason.FORGED);

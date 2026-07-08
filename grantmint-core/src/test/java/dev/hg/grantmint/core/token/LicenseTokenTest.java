@@ -198,6 +198,25 @@ class LicenseTokenTest {
     }
 
     @Test
+    void nonCanonicalEntitlementKeyIsMalformed() {
+        // A validly-signed token whose ent carries a key outside ^[a-z][a-z0-9_]{0,62}$. The two
+        // keys are JSON-distinct, so the duplicate-key guard cannot see them — normalizing instead
+        // of rejecting would collapse them last-wins here while a verifier that does not normalize
+        // keeps them as two distinct entitlements, splitting entitlement semantics across SDKs.
+        // A canonical issuer can never emit such a key (the server enforces the same grammar at
+        // entitlement creation), so the whole class is rejected outright, in all five verifiers.
+        String headerJson = "{\"alg\":\"EdDSA\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}";
+        String payloadJson = "{\"ver\":1,\"lid\":\"l\",\"kid\":\"KP77\",\"prd\":\"p\",\"pol\":\"po\","
+                + "\"hld\":{\"n\":\"n\",\"e\":\"e\"},\"iat\":" + IAT + ",\"exp\":" + EXP
+                + ",\"ent\":{\"MAX_DEVICES\":5,\"max_devices\":10}}";
+        String token = signRawJson(headerJson, payloadJson);
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
     void nonCanonicalSignatureEncodingIsMalformed() {
         // The signature segment is the one part of the token not covered by the signing input, so an
         // alternate base64url spelling of it decodes to the SAME 64 signature bytes (86 chars leave 4
@@ -382,12 +401,36 @@ class LicenseTokenTest {
 
     @Test
     void paddedSegmentIsMalformed() {
-        // Padding is outside the wire contract; a '='-padded segment must be rejected, not tolerated.
+        // Padding is outside the wire contract; a '='-padded segment must be rejected, not tolerated —
+        // in ANY of the three positions. All segments are strict-decoded eagerly (before the header
+        // gates and the signature), so a padded payload is MALFORMED here exactly as it is in the
+        // starter/Go/Swift/TS verifiers, never FORGED via the doomed signature check (GRANTMINT-166).
         String[] segments = issuer.sign(proLicense()).split("\\.");
-        String paddedHeader = segments[0] + "=." + segments[1] + "." + segments[2];
+        String[] padded = {
+            segments[0] + "=." + segments[1] + "." + segments[2],
+            segments[0] + "." + segments[1] + "=." + segments[2],
+            segments[0] + "." + segments[1] + "." + segments[2] + "=",
+        };
 
-        VerificationResult result =
-                LicenseVerifier.verifyAt(paddedHeader, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+        for (String token : padded) {
+            VerificationResult result =
+                    LicenseVerifier.verifyAt(token, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
+            assertThat(result.reason()).as("padded segment in %s", token).isEqualTo(FailureReason.MALFORMED);
+        }
+    }
+
+    @Test
+    void structuralDecodeRunsBeforeHeaderGates() {
+        // A token that is BOTH structurally corrupt (padded payload) and header-offensive (alg=none)
+        // is MALFORMED, not ALG_NOT_ALLOWED: structure is gate zero in all five verifiers, so the
+        // reason cannot depend on which implementation looked at the bytes (GRANTMINT-166).
+        String[] segments = signRawJson(
+                        "{\"alg\":\"none\",\"typ\":\"GMT\",\"kid\":\"KP77\",\"crv\":\"Ed25519\"}", "{\"ver\":1}")
+                .split("\\.");
+        String corruptAndOffensive = segments[0] + "." + segments[1] + "=." + segments[2];
+
+        VerificationResult result = LicenseVerifier.verifyAt(
+                corruptAndOffensive, keyPair.getPublic(), Clock.fixed(Instant.ofEpochSecond(IAT)));
         assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
     }
 

@@ -124,8 +124,13 @@ public func verifyLicense(
         let iat = try integerClaim(obj["iat"]),
         let ent = obj["ent"] as? [String: Any]
     else { throw LicenseError.malformed }
+    // The reference's EntitlementSet.decode admits exactly flag | limit | string values under
+    // canonical snake_case keys (^[a-z][a-z0-9_]{0,62}$ — the grammar the server enforces at
+    // entitlement creation). Rejecting non-canonical keys (rather than normalizing) keeps two
+    // JSON-distinct keys like "MAX_DEVICES"/"max_devices" from collapsing last-wins in one SDK
+    // while staying distinct in another.
     for (entKey, entValue) in ent {
-        guard !entKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        guard isCanonicalEntitlementKey(entKey),
             entValue is NSNumber || entValue is String  // strict scan already banned floats
         else { throw LicenseError.malformed }
     }
@@ -191,6 +196,24 @@ private func integerClaim(_ value: Any?) throws -> Int64? {
 
 /// A required string claim per the table: present, a string, and non-empty — else the caller
 /// treats it as malformed.
+/// The reference's `EntitlementKey.isCanonical`: `^[a-z][a-z0-9_]{0,62}$`. A pure ASCII
+/// character-class check — byte-deterministic across the Java, Swift, Go, and TS verifiers,
+/// with no Unicode case-folding parity risk.
+private func isCanonicalEntitlementKey(_ key: String) -> Bool {
+    let scalars = key.unicodeScalars
+    if scalars.count < 1 || scalars.count > 63 { return false }
+    for (index, scalar) in scalars.enumerated() {
+        let isLower = scalar.value >= 0x61 && scalar.value <= 0x7A  // a-z
+        let isDigit = scalar.value >= 0x30 && scalar.value <= 0x39  // 0-9
+        if index == 0 {
+            if !isLower { return false }
+        } else if !isLower && !isDigit && scalar.value != 0x5F {  // _
+            return false
+        }
+    }
+    return true
+}
+
 private func nonEmptyString(_ value: Any?) -> String? {
     guard let s = value as? String, !s.isEmpty else { return nil }
     return s

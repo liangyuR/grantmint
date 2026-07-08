@@ -176,10 +176,14 @@ public final class OfflineTokenVerifier {
         String holderEmail = requiredString(holder, "e");
         Map<String, Object> entitlements = requiredObject(claims, "ent");
         // The reference's EntitlementSet.decode admits exactly flag | limit | string values under
-        // non-blank keys; anything else in a signed ent is malformed there and so must be here.
+        // canonical snake_case keys (^[a-z][a-z0-9_]{0,62}$ — the grammar the server enforces at
+        // entitlement creation); anything else in a signed ent is malformed there and so must be
+        // here. Rejecting non-canonical keys (rather than normalizing) keeps two JSON-distinct
+        // keys like "MAX_DEVICES"/"max_devices" from collapsing last-wins in one SDK while staying
+        // distinct in another.
         for (Map.Entry<String, Object> entitlement : entitlements.entrySet()) {
-            if (entitlement.getKey().strip().isEmpty()) {
-                throw malformed("entitlement keys must not be blank");
+            if (!isCanonicalEntitlementKey(entitlement.getKey())) {
+                throw malformed("entitlement keys must be canonical snake_case");
             }
             Object value = entitlement.getValue();
             if (!(value instanceof Boolean || value instanceof Long || value instanceof String)) {
@@ -266,6 +270,31 @@ public final class OfflineTokenVerifier {
             throw malformed("missing required integer claim: " + key);
         }
         return epoch;
+    }
+
+    /**
+     * The reference's {@code EntitlementKey.isCanonical}: {@code ^[a-z][a-z0-9_]{0,62}$}. A pure
+     * ASCII character-class check — byte-deterministic across the Java, Swift, Go, and TS verifiers,
+     * with no Unicode case-folding parity risk.
+     */
+    private static boolean isCanonicalEntitlementKey(String key) {
+        int length = key.length();
+        if (length < 1 || length > 63) {
+            return false;
+        }
+        char first = key.charAt(0);
+        if (first < 'a' || first > 'z') {
+            return false;
+        }
+        for (int i = 1; i < length; i++) {
+            char c = key.charAt(i);
+            boolean lower = c >= 'a' && c <= 'z';
+            boolean digit = c >= '0' && c <= '9';
+            if (!lower && !digit && c != '_') {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String requiredString(Map<String, Object> claims, String key) {

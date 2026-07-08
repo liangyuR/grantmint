@@ -89,9 +89,37 @@ describe('verifyTokenOffline', () => {
     expect(justBefore.expired).toBe(false);
   });
 
+  it('accepts int64 epoch and limit claims beyond 2^53 like the 64-bit reference verifiers', async () => {
+    // The strict parser yields bigint above Number.MAX_SAFE_INTEGER; the wire contract is full
+    // int64 (Java/Go/Swift read these as 64-bit longs), so an authentic far-future exp or an
+    // extreme limit must verify — previously the number-only claim gates called this malformed,
+    // a TS-only verdict split on authentic bytes.
+    const payload =
+      '{"ent":{"max_rows":9007199254740993},"exp":9007199254740993,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}';
+    const token = await signRaw(PINNED_HEADER_JSON, payload);
+    const result = await verifyTokenOffline(token, PUBLIC_KEY_BASE64, IAT);
+    expect(result.signatureValid).toBe(true);
+    expect(result.expired).toBe(false);
+    expect(result.notYetValid).toBe(false);
+    // The display contract (GRANTMINT-169): values above 2^53 surface as their exact decimal
+    // string (DisplayInt64), never a silently-rounded double — pinned so the declared types and
+    // the runtime shape cannot drift apart again.
+    expect(result.payload.exp).toBe('9007199254740993');
+    expect(result.payload.ent).toMatchObject({ max_rows: '9007199254740993' });
+  });
+
   it('rejects a padded segment', async () => {
     const [h, p, s] = segments();
     await expect(verifyTokenOffline(`${h}=.${p}.${s}`, PUBLIC_KEY_BASE64, IAT)).rejects.toThrow(
+      TokenFormatError,
+    );
+  });
+
+  it('rejects a padded payload segment as malformed, never as a signature failure', async () => {
+    // The reason-parity vector (GRANTMINT-166): structure is gate zero in every verifier, so the
+    // corrupt segment must throw TokenFormatError here — not surface as signatureValid=false.
+    const [h, p, s] = segments();
+    await expect(verifyTokenOffline(`${h}.${p}=.${s}`, PUBLIC_KEY_BASE64, IAT)).rejects.toThrow(
       TokenFormatError,
     );
   });
@@ -185,6 +213,14 @@ describe('verifyTokenOffline', () => {
       'boolean ver': `{"exp":null,${REQUIRED_TAIL},"ver":true}`,
       'ent array value':
         '{"ent":{"tier":[1,2]},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}',
+      // ent keys must already be canonical snake_case (^[a-z][a-z0-9_]{0,62}$). The collision pair
+      // is JSON-distinct, so the duplicate-key guard cannot see it — a verifier that normalized
+      // instead of rejecting would collapse the two last-wins while another SDK keeps them
+      // distinct, splitting entitlement semantics for the same signed bytes.
+      'non-canonical ent key':
+        '{"ent":{"MAX_DEVICES":5},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}',
+      'ent keys colliding after normalization':
+        '{"ent":{"MAX_DEVICES":5,"max_devices":10},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}',
     };
 
     for (const [name, payloadJson] of Object.entries(cases)) {

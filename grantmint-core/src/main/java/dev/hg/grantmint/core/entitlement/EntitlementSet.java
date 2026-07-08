@@ -66,13 +66,21 @@ public final class EntitlementSet {
      *   <li>{@link String} → {@link EntitlementType#STRING}
      * </ul>
      *
-     * @throws IllegalArgumentException for any other value type (e.g. a fractional number or null)
+     * @throws IllegalArgumentException for any other value type (e.g. a fractional number or null),
+     *     or for a key that is not already in canonical form ({@link EntitlementKey#isCanonical}) —
+     *     normalizing here instead would let two JSON-distinct keys (e.g. {@code "MAX_DEVICES"} and
+     *     {@code "max_devices"}) silently collapse last-wins, a cross-SDK parity hazard; a canonical
+     *     issuer never emits such keys, so they are rejected outright
      */
     public static EntitlementSet decode(Map<String, ?> ent) {
         Objects.requireNonNull(ent, "ent");
         Map<String, Entitlement> map = new LinkedHashMap<>();
         for (Map.Entry<String, ?> entry : ent.entrySet()) {
-            map.put(EntitlementKey.normalize(entry.getKey()), toEntitlement(entry.getKey(), entry.getValue()));
+            if (!EntitlementKey.isCanonical(entry.getKey())) {
+                throw new IllegalArgumentException(
+                        "Entitlement key '" + entry.getKey() + "' is not in canonical snake_case form");
+            }
+            map.put(entry.getKey(), toEntitlement(entry.getKey(), entry.getValue()));
         }
         return map.isEmpty() ? EMPTY : new EntitlementSet(Collections.unmodifiableMap(map));
     }

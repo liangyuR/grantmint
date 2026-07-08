@@ -90,6 +90,21 @@ class CrossVerifierFixtureTest {
     }
 
     @Test
+    void paddedPayloadSegmentOfPublishedTokenIsMalformedNotForged() {
+        // The reason-parity vector (GRANTMINT-166): '='-pad the authentic token's payload segment and
+        // every verifier must say MALFORMED. Structure is gate zero — the corrupt segment is rejected
+        // before any signature work, so the reason can never drift to FORGED/INVALID_SIGNATURE in an
+        // implementation that happens to check the (doomed) signature first.
+        PublicKey publicKey = Ed25519Keys.decodePublicKey(HexFormat.of().parseHex(PUBLIC_KEY_HEX));
+        String[] segments = EXPECTED_TOKEN.split("\\.");
+        String paddedPayload = segments[0] + "." + segments[1] + "=." + segments[2];
+
+        VerificationResult result =
+                LicenseVerifier.verifyAt(paddedPayload, publicKey, Clock.fixed(Instant.ofEpochSecond(IAT)));
+        assertThat(result.reason()).isEqualTo(FailureReason.MALFORMED);
+    }
+
+    @Test
     void publishedTokenIsExpiredPastExp() {
         // Every language verifier must agree that exp is exclusive: rejected at exactly exp and after.
         PublicKey publicKey = Ed25519Keys.decodePublicKey(HexFormat.of().parseHex(PUBLIC_KEY_HEX));

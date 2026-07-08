@@ -47,6 +47,21 @@ export interface DecodedTokenHeader {
   [key: string]: unknown;
 }
 
+/**
+ * An int64 claim as it appears in the DISPLAY payload: a plain number, or its exact decimal
+ * string once the value exceeds Number.MAX_SAFE_INTEGER (2^53) — the wire contract is full int64
+ * (Java/Go/Swift read 64-bit longs), so an authentic far-future `exp` or extreme entitlement
+ * limit is stringified for lossless display rather than silently rounded through a double
+ * (GRANTMINT-169: the declared types must admit that, not hide it behind a cast).
+ */
+export type DisplayInt64 = number | string;
+
+/**
+ * The decoded claims as shown by the demo page — display data, not a verification API. On the
+ * happy path every field below is exactly what the claim gate verified; when `signatureValid` is
+ * false the payload is an UNVERIFIED best-effort decode and no field can be trusted to match its
+ * declared type beyond JSON's own shapes.
+ */
 export interface DecodedTokenPayload {
   ver?: number;
   lid?: string;
@@ -54,9 +69,9 @@ export interface DecodedTokenPayload {
   prd?: string;
   pol?: string;
   hld?: { n?: string; e?: string };
-  iat?: number;
-  nbf?: number;
-  exp?: number | null;
+  iat?: DisplayInt64;
+  nbf?: DisplayInt64;
+  exp?: DisplayInt64 | null;
   ent?: Record<string, unknown>;
   con?: Record<string, unknown>;
   seat?: number;
@@ -160,9 +175,10 @@ function base64UrlStrictToBytes(segment: string): Uint8Array {
 // duplicate object keys are an error (never first/last-wins), numbers are integers only — no
 // fraction, no exponent, no leading zeros/plus — and must fit a signed 64-bit range. JS numbers
 // lose integer precision past 2^53, so integer literals within that range decode to `number`;
-// larger-but-still-int64 literals decode to `bigint` (which then falls out of every typed claim
-// gate below, since every real claim is typed to a plain `number` — epoch seconds and int32 seats
-// always fit in a double).
+// larger-but-still-int64 literals decode to `bigint`. The wire contract permits full int64 for
+// epoch claims and entitlement limits (the Java/Go/Swift verifiers read them as 64-bit longs), so
+// the epoch and entitlement gates below accept `bigint` too — only inherently-32-bit claims
+// (`seat`, `ver`) reject it, exactly like the reference's Math.toIntExact.
 
 type JsonValue = string | number | bigint | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
@@ -467,20 +483,36 @@ function requiredObject(claims: Record<string, JsonValue>, key: string): Record<
   return value;
 }
 
-function requiredEpoch(claims: Record<string, JsonValue>, key: string): number {
+/**
+ * The reference's `EntitlementKey.isCanonical`: `^[a-z][a-z0-9_]{0,62}$`. A pure ASCII
+ * character-class check — byte-deterministic across the Java, Swift, Go, and TS verifiers, with
+ * no Unicode case-folding parity risk.
+ */
+function isCanonicalEntitlementKey(key: string): boolean {
+  return /^[a-z][a-z0-9_]{0,62}$/.test(key);
+}
+
+/** `now < epoch` across the number/bigint split the strict parser produces for int64 claims. */
+function nowBeforeEpoch(nowSeconds: number, epoch: number | bigint): boolean {
+  return typeof epoch === 'bigint' ? BigInt(Math.trunc(nowSeconds)) < epoch : nowSeconds < epoch;
+}
+
+function requiredEpoch(claims: Record<string, JsonValue>, key: string): number | bigint {
   const value = claims[key];
-  if (typeof value !== 'number') {
+  // int64 on the wire: within 2^53 the strict parser yields `number`, beyond it `bigint` — both
+  // are authentic integer epochs and the reference verifiers accept the full 64-bit range.
+  if (typeof value !== 'number' && typeof value !== 'bigint') {
     throw new TokenFormatError(`missing required integer claim: ${key}`);
   }
   return value;
 }
 
-function optionalEpoch(claims: Record<string, JsonValue>, key: string): number | undefined {
+function optionalEpoch(claims: Record<string, JsonValue>, key: string): number | bigint | undefined {
   const value = claims[key];
   if (value === undefined || value === null) {
     return undefined;
   }
-  if (typeof value !== 'number') {
+  if (typeof value !== 'number' && typeof value !== 'bigint') {
     throw new TokenFormatError(`${key} must be an integer epoch second`);
   }
   return value;
@@ -496,7 +528,9 @@ function optionalInt32(claims: Record<string, JsonValue>, key: string): number |
   if (value === undefined) {
     return undefined;
   }
-  if (value < -2147483648 || value > 2147483647) {
+  // A bigint is by construction outside 2^53, so it can never fit an int32 — same rejection the
+  // reference's Math.toIntExact produces for an int64 beyond the 32-bit range.
+  if (typeof value === 'bigint' || value < -2147483648 || value > 2147483647) {
     throw new TokenFormatError(`${key} must fit a 32-bit integer`);
   }
   return value;
@@ -533,14 +567,23 @@ function checkClaims(
   requiredString(holder, 'n');
   requiredString(holder, 'e');
   const entitlements = requiredObject(claims, 'ent');
-  // Exactly flag | limit | string values under non-blank keys; anything else in a signed ent is
-  // malformed there and so must be here (a bigint entitlement value, beyond safe-integer range,
-  // also fails this typeof gate and is rejected — see the StrictJsonParser comment above).
+  // Exactly flag | limit | string values under canonical snake_case keys
+  // (^[a-z][a-z0-9_]{0,62}$ — the grammar the server enforces at entitlement creation); anything
+  // else in a signed ent is malformed in the reference and so must be here. Rejecting
+  // non-canonical keys (rather than normalizing) keeps two JSON-distinct keys like
+  // "MAX_DEVICES"/"max_devices" from collapsing last-wins in one SDK while staying distinct in
+  // another. Limit values are int64 on the wire, so `bigint` (beyond 2^53) is accepted like the
+  // reference's 64-bit long.
   for (const [key, value] of Object.entries(entitlements)) {
-    if (key.trim().length === 0) {
-      throw new TokenFormatError('entitlement keys must not be blank');
+    if (!isCanonicalEntitlementKey(key)) {
+      throw new TokenFormatError('entitlement keys must be canonical snake_case');
     }
-    if (typeof value !== 'boolean' && typeof value !== 'number' && typeof value !== 'string') {
+    if (
+      typeof value !== 'boolean' &&
+      typeof value !== 'number' &&
+      typeof value !== 'bigint' &&
+      typeof value !== 'string'
+    ) {
       throw new TokenFormatError('entitlement values must be a boolean flag, integer limit, or string');
     }
   }
@@ -571,8 +614,8 @@ function checkClaims(
   }
 
   return {
-    notYetValid: nbf !== undefined && nowSeconds < nbf,
-    expired: exp !== undefined && nowSeconds >= exp,
+    notYetValid: nbf !== undefined && nowBeforeEpoch(nowSeconds, nbf),
+    expired: exp !== undefined && !nowBeforeEpoch(nowSeconds, exp),
   };
 }
 
@@ -580,9 +623,10 @@ function checkClaims(
 
 function toDisplayValue(value: JsonValue): unknown {
   if (typeof value === 'bigint') {
-    // Only reachable via an out-of-schema extra claim carrying a >2^53 magnitude (every claim this
-    // verifier actually gates is checked as a plain `number` above); stringify for safe display
-    // rather than crash `JSON.stringify`.
+    // Reachable by any int64 claim above 2^53 — including an authentic far-future exp/nbf/iat or
+    // an extreme entitlement limit (the epoch gates accept bigint by design). Stringify the exact
+    // decimal for lossless display rather than crash `JSON.stringify`; DisplayInt64 declares this
+    // number-or-string shape honestly (GRANTMINT-169).
     return value.toString();
   }
   if (Array.isArray(value)) {

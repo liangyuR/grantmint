@@ -43,6 +43,11 @@ public record SignedToken(String headerSegment, String payloadSegment, String si
         return (headerSegment + "." + payloadSegment).getBytes(StandardCharsets.US_ASCII);
     }
 
+    /** The decoded payload bytes — segment decodability is part of structural well-formedness. */
+    public byte[] payloadBytes() {
+        return Base64Url.decode(payloadSegment);
+    }
+
     /** The decoded 64-byte signature. */
     public byte[] signatureBytes() {
         return Base64Url.decode(signatureSegment);

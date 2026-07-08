@@ -163,9 +163,13 @@ func VerifyForProduct(token, publicKeyHex string, now int64, expectedProduct str
 		return nil, ErrMalformed
 	}
 	// The reference's EntitlementSet.decode admits exactly flag | limit | string values under
-	// non-blank keys; anything else in a signed ent is malformed there and so must be here.
+	// canonical snake_case keys (^[a-z][a-z0-9_]{0,62}$ — the grammar the server enforces at
+	// entitlement creation); anything else in a signed ent is malformed there and so must be
+	// here. Rejecting non-canonical keys (rather than normalizing) keeps two JSON-distinct keys
+	// like "MAX_DEVICES"/"max_devices" from collapsing last-wins in one SDK while staying
+	// distinct in another.
 	for key, value := range ent {
-		if strings.TrimSpace(key) == "" {
+		if !isCanonicalEntitlementKey(key) {
 			return nil, ErrMalformed
 		}
 		switch value.(type) {
@@ -237,6 +241,27 @@ func VerifyForProduct(token, publicKeyHex string, now int64, expectedProduct str
 		return nil, ErrExpired
 	}
 	return claims, nil
+}
+
+// isCanonicalEntitlementKey is the reference's EntitlementKey.isCanonical:
+// ^[a-z][a-z0-9_]{0,62}$. A pure ASCII character-class check — byte-deterministic across the
+// Java, Swift, Go, and TS verifiers, with no Unicode case-folding parity risk.
+func isCanonicalEntitlementKey(key string) bool {
+	if len(key) < 1 || len(key) > 63 {
+		return false
+	}
+	if key[0] < 'a' || key[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(key); i++ {
+		c := key[i]
+		lower := c >= 'a' && c <= 'z'
+		digit := c >= '0' && c <= '9'
+		if !lower && !digit && c != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseStrictObject decodes a JSON object with the wire's strictness: duplicate member names

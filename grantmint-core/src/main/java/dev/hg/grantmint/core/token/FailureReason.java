@@ -4,7 +4,10 @@ package dev.hg.grantmint.core.token;
  * Why offline verification rejected a token. Checks run in this order, and the first failure wins:
  *
  * <ol>
- *   <li>{@link #MALFORMED} — not three decodable base64url JSON segments;
+ *   <li>{@link #MALFORMED} — not three strictly-decodable base64url segments carrying well-formed
+ *       header/payload JSON. All three segments are decoded eagerly, before any other gate, in
+ *       every verifier (core, starter, Go, Swift, TS) — so a corrupt segment is MALFORMED
+ *       everywhere, never a downstream reason like {@code FORGED} or {@code ALG_NOT_ALLOWED};
  *   <li>{@link #ALG_NOT_ALLOWED} — the header does not pin the one allowed signature scheme,
  *       {@code alg=EdDSA} over {@code crv=Ed25519} (algorithm- or curve-confusion attempt);
  *   <li>{@link #WRONG_TYPE} — the header {@code typ} is not {@code GMT}; this is not a Grantmint

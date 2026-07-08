@@ -91,15 +91,9 @@ class OfflineVerifierParityPropertyTest {
             assertThat(refusal)
                     .as("reference rejected (%s) so the starter must too", reference.reason())
                     .isInstanceOf(TokenVerificationException.class);
-            TokenVerificationException.Reason starterReason = ((TokenVerificationException) refusal).reason();
-            switch (reference.reason()) {
-                case EXPIRED -> assertThat(starterReason).isEqualTo(TokenVerificationException.Reason.EXPIRED);
-                case NOT_YET_VALID -> assertThat(starterReason)
-                        .isEqualTo(TokenVerificationException.Reason.NOT_YET_VALID);
-                default -> {
-                    // Any other refusal must at least not be temporal disagreement.
-                }
-            }
+            assertThat(((TokenVerificationException) refusal).reason())
+                    .as("starter reason must mirror the reference's %s exactly", reference.reason())
+                    .isEqualTo(starterEquivalentOf(reference.reason()));
         }
     }
 
@@ -166,12 +160,19 @@ class OfflineVerifierParityPropertyTest {
         }
         String tampered = token.substring(0, index) + replacement + token.substring(index + 1);
 
-        assertThat(LicenseVerifier.verifyAt(tampered, keys.getPublic(), dev.hg.grantmint.core.time.Clock.fixed(NOW))
-                        .isValid())
-                .isFalse();
+        VerificationResult reference =
+                LicenseVerifier.verifyAt(tampered, keys.getPublic(), dev.hg.grantmint.core.time.Clock.fixed(NOW));
+        assertThat(reference.isValid()).isFalse();
         OfflineTokenVerifier starter = new OfflineTokenVerifier(
                 Base64.getEncoder().encodeToString(Ed25519Keys.encodePublicKey(keys.getPublic())));
-        assertThatThrownBy(() -> starter.verifyAt(tampered, NOW)).isInstanceOf(TokenVerificationException.class);
+        Throwable refusal = catchThrowable(() -> starter.verifyAt(tampered, NOW));
+        assertThat(refusal).isInstanceOf(TokenVerificationException.class);
+        // Not just the verdict: tampering anywhere must surface the SAME reason in both
+        // implementations. This exact-equality net is what catches an ordering drift like the
+        // 2026-07 audit's FORGED-vs-MALFORMED payload-segment split (GRANTMINT-166).
+        assertThat(((TokenVerificationException) refusal).reason())
+                .as("tampering index %d must yield the same reason in both implementations", index)
+                .isEqualTo(starterEquivalentOf(reference.reason()));
     }
 
     /**
@@ -286,7 +287,18 @@ class OfflineVerifierParityPropertyTest {
                                 + iat + ",\"kid\":\"K\",\"lid\":\"l\",\"pol\":\"po\",\"prd\":\"p\",\"ver\":1}",
                 "con not an object", "{\"con\":7,\"exp\":" + exp + "," + requiredTail + ",\"ver\":1}",
                 "seat not an integer", "{\"exp\":" + exp + "," + requiredTail + ",\"seat\":\"two\",\"ver\":1}",
-                "string exp", "{\"exp\":\"" + exp + "\"," + requiredTail + ",\"ver\":1}");
+                "string exp", "{\"exp\":\"" + exp + "\"," + requiredTail + ",\"ver\":1}",
+                // ent keys must already be canonical snake_case (^[a-z][a-z0-9_]{0,62}$): the
+                // collision pair is JSON-distinct, so the duplicate-key guard cannot see it, and a
+                // verifier that normalized instead of rejecting would collapse it last-wins while
+                // another SDK keeps two distinct entitlements for the same signed bytes.
+                "non-canonical ent key",
+                        "{\"ent\":{\"MAX_DEVICES\":5},\"exp\":" + exp + ",\"hld\":{\"e\":\"e\",\"n\":\"n\"},\"iat\":"
+                                + iat + ",\"kid\":\"K\",\"lid\":\"l\",\"pol\":\"po\",\"prd\":\"p\",\"ver\":1}",
+                "ent keys colliding after normalization",
+                        "{\"ent\":{\"MAX_DEVICES\":5,\"max_devices\":10},\"exp\":" + exp
+                                + ",\"hld\":{\"e\":\"e\",\"n\":\"n\"},\"iat\":" + iat
+                                + ",\"kid\":\"K\",\"lid\":\"l\",\"pol\":\"po\",\"prd\":\"p\",\"ver\":1}");
 
         OfflineTokenVerifier starter = new OfflineTokenVerifier(
                 Base64.getEncoder().encodeToString(Ed25519Keys.encodePublicKey(keys.getPublic())));
@@ -421,6 +433,26 @@ class OfflineVerifierParityPropertyTest {
         assertThat(rightProduct).isInstanceOf(TokenVerificationException.class);
         assertThat(((TokenVerificationException) rightProduct).reason())
                 .isEqualTo(TokenVerificationException.Reason.EXPIRED);
+    }
+
+    /**
+     * The reason every core {@link dev.hg.grantmint.core.token.FailureReason} must surface as in the
+     * starter — exhaustive (no default), so ANY reason divergence fails the fuzzers, not just a
+     * temporal one. The single rename is FORGED → INVALID_SIGNATURE, CLIENT_SDK.md's documented
+     * taxonomy mapping; everything else must match by name.
+     */
+    private static TokenVerificationException.Reason starterEquivalentOf(
+            dev.hg.grantmint.core.token.FailureReason reason) {
+        return switch (reason) {
+            case MALFORMED -> TokenVerificationException.Reason.MALFORMED;
+            case ALG_NOT_ALLOWED -> TokenVerificationException.Reason.ALG_NOT_ALLOWED;
+            case WRONG_TYPE -> TokenVerificationException.Reason.WRONG_TYPE;
+            case FORGED -> TokenVerificationException.Reason.INVALID_SIGNATURE;
+            case UNSUPPORTED_VERSION -> TokenVerificationException.Reason.UNSUPPORTED_VERSION;
+            case WRONG_PRODUCT -> TokenVerificationException.Reason.WRONG_PRODUCT;
+            case NOT_YET_VALID -> TokenVerificationException.Reason.NOT_YET_VALID;
+            case EXPIRED -> TokenVerificationException.Reason.EXPIRED;
+        };
     }
 
     /** Sign arbitrary raw JSON under the given signer — for shapes the canonical issuer refuses to mint. */

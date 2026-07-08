@@ -81,6 +81,20 @@ final class GrantmintVerifierTests: XCTestCase {
         XCTAssertNoThrow(try verifyLicense(Self.token, publicKeyBase64: Self.publicKeyBase64, now: Self.exp - 1))
     }
 
+    func testInt64ClaimsBeyondDoublePrecisionRoundTripExactly() throws {
+        // 2^53+1 (9007199254740993) is the first integer a 64-bit Double cannot represent: a
+        // verifier routing integer claims through a float silently reads ...992 — an off-by-one
+        // entitlement limit on authentic bytes. Java (long), Go (int64), and TS (bigint) are exact;
+        // this pins the JSONSerialization/NSNumber path to the same full-int64 contract, out to
+        // Int64.max at the far edge (GRANTMINT-167).
+        let payload =
+            #"{"ent":{"hard_cap":9223372036854775807,"max_rows":9007199254740993},"exp":9223372036854775807,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}"#
+        let token = try Self.signRaw(headerJSON: Self.pinnedHeaderJSON, payloadJSON: payload)
+        let lic = try verifyLicense(token, publicKeyBase64: Self.publicKeyBase64, now: Self.iat)
+        XCTAssertEqual(lic.entitlements["max_rows"] as? Int64, 9_007_199_254_740_993)
+        XCTAssertEqual(lic.entitlements["hard_cap"] as? Int64, Int64.max)
+    }
+
     func testNonCanonicalSignatureSpellingsAreMalformed() {
         // The 86-char signature segment leaves 4 unused trailing bits: 15 alternate spellings
         // decode to the SAME signature bytes. Every one must be malformed.
@@ -97,6 +111,9 @@ final class GrantmintVerifierTests: XCTestCase {
     func testPaddedAndStandardAlphabetSegmentsAreMalformed() {
         let parts = Self.token.split(separator: ".").map(String.init)
         assertThrows(parts[0] + "=." + parts[1] + "." + parts[2], .malformed, "padded segment")
+        // The reason-parity vector (GRANTMINT-166): a padded PAYLOAD segment is .malformed in every
+        // verifier — structure is gate zero, so the reason must never drift to .badSignature.
+        assertThrows(parts[0] + "." + parts[1] + "=." + parts[2], .malformed, "padded payload segment")
         assertThrows(parts[0] + "." + parts[1] + ".+" + parts[2].dropFirst(), .malformed, "standard alphabet")
     }
 
@@ -182,6 +199,19 @@ final class GrantmintVerifierTests: XCTestCase {
                 #"{"exp":null,"# + requiredTail + #","seat":-5000000000,"ver":1}"#
             ),
             ("trailing content", #"{"exp":null,"# + requiredTail + #","ver":1} {}"#),
+            // ent keys must already be canonical snake_case (^[a-z][a-z0-9_]{0,62}$). The
+            // collision pair is JSON-distinct, so the duplicate-key guard cannot see it — a
+            // verifier that normalized instead of rejecting would collapse the two last-wins
+            // while another SDK keeps them distinct, splitting entitlement semantics for the
+            // same signed bytes.
+            (
+                "non-canonical ent key",
+                #"{"ent":{"MAX_DEVICES":5},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}"#
+            ),
+            (
+                "ent keys colliding after normalization",
+                #"{"ent":{"MAX_DEVICES":5,"max_devices":10},"exp":null,"hld":{"e":"e","n":"n"},"iat":1751130000,"kid":"K","lid":"l","pol":"po","prd":"p","ver":1}"#
+            ),
         ]
         for (name, payloadJSON) in cases {
             let token = try Self.signRaw(headerJSON: Self.pinnedHeaderJSON, payloadJSON: payloadJSON)
