@@ -2,14 +2,10 @@
 
 > A self-hostable, single-binary **license & entitlement server** for the JVM. It issues **authentic, cryptographically sealed credentials** your apps can verify **offline** — and adds online activation, seat counting, and revocation when you need richer control.
 
-**Last Updated: 2026-06-28**
-
 [![Build](https://img.shields.io/github/actions/workflow/status/harungungorer/grantmint/ci.yml?branch=main)](https://github.com/harungungorer/grantmint/actions)
 [![License: AGPL-3.0 (server) / Apache-2.0 (SDK)](https://img.shields.io/badge/license-AGPL--3.0%20server%20%2F%20Apache--2.0%20SDK-blue.svg)](LICENSE)
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![GraalVM Native](https://img.shields.io/badge/GraalVM-native--image-purple.svg)](https://www.graalvm.org/)
-
-![demo](docs/assets/demo.gif)
 
 ---
 
@@ -21,7 +17,7 @@
 - [How it compares](#how-it-compares)
 - [Tech stack](#tech-stack)
 - [Module structure](#module-structure)
-- [5-minute quick start](#5-minute-quick-start)
+- [Quick start](#quick-start)
 - [The signature demo: offline vs online](#the-signature-demo-offline-vs-online)
 - [The offline ↔ online tradeoff](#the-offline--online-tradeoff)
 - [Dual-license model](#dual-license-model)
@@ -61,20 +57,21 @@ Grantmint's differentiator is **not** scale or feature parity with Keygen. It is
 
 ## Key features
 
-- **Signed-token issuance** — issue a license from a policy and receive an Ed25519-signed token (embedding entitlements, expiry, holder, constraints) plus a short, human-readable **key ID** like `GRNT-7F3A-9KQ2-X4M8`.
-- **Offline verification** — clients verify the signed token against an embedded public key with **zero network**.
-- **Online validation** — `validate` / `activate` / `deactivate` / `heartbeat` against the server for richer control.
-- **Node-locked activation** — machine fingerprinting + per-license **seat limits** (max machines per license). Floating/concurrent licenses are deferred — see [ROADMAP](docs/reference/ROADMAP.md).
-- **Entitlements** — named feature flags (`team_sync`) and numeric limits (`max_devices=5`), defined per policy, carried inside the token, and checkable both offline and online.
-- **License lifecycle** — trials, expiry, grace periods, suspend/reinstate, and online revocation, modeled as an explicit state machine (`created → active → suspended → expired → revoked`).
-- **Admin REST API + minimal React/TS dashboard** — manage products, policies, entitlements, licenses, and activations; issue and revoke.
-- **Three auth schemes** — admin/dashboard auth, per-product issuance API keys, and a license-validation auth scheme. **No end-user signup/login/OAuth.**
-- **`grantmint-spring-boot-starter`** (Apache-2.0) — drop-in validation/entitlement checks for any Spring Boot app in ~20 lines + an embedded public key.
-- **Swift & Go verifiers** — documented offline-verifier snippets (Apple CryptoKit, Go `ed25519` stdlib) for first-party clients.
-- **Pluggable payment-webhook adapter** — Strategy + auto-configuration, with **Stripe** as the reference adapter that auto-issues/suspends/expires licenses.
+- **Signed-token issuance** — issue a license from a policy and receive an Ed25519-signed token (embedding entitlements, expiry, holder, constraints) plus a short, human-typeable **key ID** like `K7P2-9QXM-4T1Y` (checksummed, ambiguity-free alphabet — survives being read over the phone).
+- **Offline verification** — clients verify the signed token against an embedded public key with **zero network**. Canonical byte-for-byte encoding is part of the security contract, pinned by a shared cross-verifier test fixture.
+- **Online validation** — `validate` / `activate` / `deactivate` / `heartbeat` against the server for richer control, with a Caffeine cache whose TTL is documented as the revocation-latency ceiling.
+- **Node-locked activation** — machine fingerprinting + per-license **seat limits**, enforced under a database lock so concurrent activations can never oversubscribe a license. Floating/concurrent licenses are deferred to post-v1.
+- **Entitlements** — named feature flags (`team_sync`), numeric limits (`max_devices=5`), and string values, defined per policy, snapshotted into the license at issuance, carried inside the token, and checkable both offline and online.
+- **License lifecycle** — trials, expiry, grace periods, suspend/reinstate, and online revocation, modeled as an explicit state machine (`created → active → suspended → expired → revoked`) with property-tested transition guards.
+- **Admin REST API + React dashboard** — manage products, policies, entitlements, licenses, and activations; issue and revoke; walk the offline-vs-online demo end to end in the browser.
+- **Three isolated auth schemes** — admin/dashboard sessions, per-product issuance API keys (`X-Grantmint-Issuance-Key`), and low-privilege, rate-limited license-validation keys (`X-Grantmint-License-Key`) — each on its own Spring Security filter chain, with a default-deny catch-all behind them. **No end-user signup/login/OAuth.**
+- **`grantmint-spring-boot-starter`** (Apache-2.0) — a self-contained offline verifier + optional online client, auto-configured into any Spring Boot app with one dependency and an embedded public key.
+- **Swift, Go, and TypeScript verifiers** — real implementations (Apple CryptoKit, Go `crypto/ed25519`, WebCrypto), all verifying the same pinned token fixture; parity is enforced in CI so the five verifiers can never drift apart.
+- **CLI** — `keygen` / `issue` / `inspect` / `revoke` / `verify`, with offline `verify` needing no server and per-failure-class exit codes for scripting.
+- **Pluggable payment-webhook adapter** — Strategy + auto-configuration, with **Stripe** as the reference adapter (signature verified before parsing; idempotent redelivery) that auto-issues/suspends/expires licenses.
 - **Background jobs** — expiry sweeps and heartbeat-timeout deactivation.
-- **Single-binary distribution** — GraalVM native image with sub-50ms startup.
-- **Observability** — Micrometer metrics (issuance count, validation latency, active licenses, activation/seat counts) with a Prometheus scrape endpoint.
+- **Single-binary distribution** — GraalVM native image with sub-second startup (~0.5 s including a live Postgres connect + Flyway migration check), plus a fat-JAR fallback and Docker Compose stack.
+- **Observability** — Micrometer metrics (issuance count, validation latency, active licenses, seats) on a loopback-bound management port with a Prometheus scrape endpoint, and structured JSON logs that provably never leak tokens or holder PII.
 
 ---
 
@@ -103,19 +100,16 @@ Grantmint's differentiator is **not** scale or feature parity with Keygen. It is
 |---|---|---|
 | Language | Java | 21 (LTS) |
 | Framework | Spring Boot | 3.x — Spring Web, Spring Security, Spring Data JPA |
-| API docs | springdoc-openapi | Swagger UI + OpenAPI 3 |
+| API docs | springdoc-openapi | Swagger UI + OpenAPI 3, admin-gated by default |
 | Crypto | Ed25519 | Signed structured token + short key ID; offline-verifiable |
-| Crypto core | `grantmint-core` | Pure Java, **zero Spring deps** (enforced by ArchUnit) |
+| Crypto core | `grantmint-core` | Pure Java, **zero runtime dependencies** (ArchUnit-enforced) |
 | Database | PostgreSQL | Primary, via Spring Data JPA + Flyway migrations |
 | Cache | Caffeine | In-process cache on the validation hot path |
-| Optional cache | Redis | Optional profile for multi-node deployments |
 | CLI | Picocli | `grantmint-cli` — issue/inspect/revoke + offline verify |
-| Dashboard | React 18 + TypeScript + Vite + Tailwind | Minimal operator console |
-| Native build | GraalVM native image | Single binary, sub-50ms startup |
+| Dashboard | React 18 + TypeScript + Vite + Tailwind | Operator console + in-browser demo verifier |
+| Native build | GraalVM native image | Single binary, sub-second startup with live DB + Flyway |
 | Observability | Micrometer + Prometheus | Issuance, validation latency, active licenses, seats |
 | Tests | Testcontainers + jqwik + ArchUnit | Integration, property-based, architecture |
-
-See [TECH_STACK.md](docs/architecture/TECH_STACK.md) for the rationale behind each choice.
 
 ---
 
@@ -126,107 +120,115 @@ grantmint/
 ├── grantmint-core                 # Pure-Java crypto/issuance core (AGPL-3.0)
 │                                  #   Ed25519 keys, signed-token build/verify,
 │                                  #   key-ID scheme, entitlement encoding.
-│                                  #   ZERO Spring dependencies (ArchUnit-enforced).
+│                                  #   ZERO runtime dependencies (ArchUnit-enforced).
 ├── grantmint-server               # Spring Boot app (AGPL-3.0)
 │                                  #   REST API, JPA persistence, Flyway, security,
 │                                  #   lifecycle state machine, webhook adapters,
 │                                  #   background jobs, native-image build.
 ├── grantmint-spring-boot-starter  # Client SDK (Apache-2.0)
-│                                  #   Auto-configured validation/entitlement bean.
-├── grantmint-cli                  # Picocli CLI (AGPL-3.0)
-│                                  #   issue / inspect / revoke / verify-offline.
+│                                  #   Self-contained offline verifier + online client,
+│                                  #   auto-configured. Never depends on the AGPL core.
+├── grantmint-cli                  # Picocli CLI (AGPL-3.0), packaged as a fat JAR
+│                                  #   keygen / issue / inspect / revoke / verify-offline.
+├── verifiers/                     # Apache-2.0 offline verifiers
+│   ├── go                         #   Go (crypto/ed25519 stdlib) + test suite
+│   └── swift                      #   Swift (Apple CryptoKit) + test suite
 └── dashboard                      # React 18 + TS + Vite + Tailwind operator console
+                                   #   incl. the WebCrypto in-browser demo verifier
 ```
 
 Base package / Maven groupId: **`dev.hg.grantmint`**.
 
 ---
 
-## 5-minute quick start
+## Quick start
 
-Two paths below. Both end with you issuing a license and verifying its token **offline** with the CLI.
+Both paths end with you issuing a license and verifying its token **offline** with the CLI.
 
-### Option A — Docker Compose (app + Postgres)
+### Option A — Docker Compose (server + Postgres)
 
 ```bash
-# 1. Clone and start the stack (server + Postgres).
 git clone https://github.com/harungungorer/grantmint.git
 cd grantmint
+
+# 1. Generate a signing key pair BEFORE starting the stack (the private key
+#    seed is the crown jewel — keygen writes it 0600 and prints the public key).
+./mvnw -q -pl grantmint-cli -am package -DskipTests
+mkdir -p keys
+java -jar grantmint-cli/target/grantmint-cli-*.jar keygen --out keys/acme.seed
+
+# 2. Review the bootstrap credentials in docker-compose.yml
+#    (GRANTMINT_ADMIN_USERNAME / GRANTMINT_ADMIN_PASSWORD), then start.
 docker compose up -d
 
-# 2. Generate a signing key pair (the private key is the crown jewel).
-#    The server writes the public key to ./keys/ed25519.pub for client embedding.
-docker compose exec grantmint grantmint keys generate --out /keys
-
-# 3. The server is now at http://localhost:8080. Swagger UI (/swagger-ui) requires an
-#    admin session by default — set GRANTMINT_OPENAPI_ACCESS=public for open docs in dev.
+# 3. Health lives on the management port, mapped to loopback only.
 curl -s http://127.0.0.1:9090/actuator/health
 # {"status":"UP"}
 ```
 
-### Option B — native binary (no Docker)
+### Option B — native binary or fat JAR (no Docker)
 
 ```bash
-# 1. Download the single self-contained native binary (sub-50ms startup).
-curl -L -o grantmint https://github.com/harungungorer/grantmint/releases/latest/download/grantmint-linux-amd64
-chmod +x grantmint
+# Grab grantmint-server-<tag>-<platform> (or grantmint-server-<tag>.jar) from
+# https://github.com/harungungorer/grantmint/releases — or build your own:
+#   ./mvnw -Pnative -DskipTests -pl grantmint-server native:compile
 
-# 2. Point it at a Postgres instance and start.
 export GRANTMINT_DB_URL="jdbc:postgresql://localhost:5432/grantmint"
 export GRANTMINT_DB_USER="grantmint"
 export GRANTMINT_DB_PASSWORD="change-me"
-./grantmint keys generate --out ./keys
-./grantmint server
+export GRANTMINT_ADMIN_USERNAME="admin"
+export GRANTMINT_ADMIN_PASSWORD="change-me"   # bootstraps the first operator
+./grantmint-server
 ```
 
 ### Issue and verify a license
 
 ```bash
-# Set the admin issuance API key the server printed on first start.
-export GRANTMINT_API_KEY="gm_issue_1a2b3c4d..."
-
-# 1. Create a Product.
-curl -s -X POST http://localhost:8080/api/v1/products \
-  -H "Authorization: Bearer $GRANTMINT_API_KEY" \
+# 1. Log in as the bootstrapped operator (session cookie + XSRF token).
+curl -s -c cookies.txt -X POST http://localhost:8080/admin/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"name":"Acme Studio","slug":"acme-studio"}'
+  -d '{"username":"admin","password":"change-me"}'
 
-# 2. Create a "Pro Annual" Policy with entitlements and a 2-seat limit.
-curl -s -X POST http://localhost:8080/api/v1/products/acme-studio/policies \
-  -H "Authorization: Bearer $GRANTMINT_API_KEY" \
+# 2. Create a product, register the signing key, and add a "Pro Annual"
+#    policy with entitlements and a 2-seat limit (IDs come back as UUIDs).
+curl -s -b cookies.txt -X POST http://localhost:8080/admin/products \
+  -d '{"slug":"acme-studio","name":"Acme Studio"}' -H "Content-Type: application/json"
+
+curl -s -b cookies.txt -X POST http://localhost:8080/admin/products/<productId>/signing-keys \
+  -d '{"keyId":"acme-2026","privateKeyRef":"file:/keys/acme.seed",
+       "publicKey":"<base64 from keygen>","makeActive":true}' \
+  -H "Content-Type: application/json"
+
+curl -s -b cookies.txt -X POST http://localhost:8080/admin/products/<productId>/policies \
+  -d '{"code":"pro-annual","name":"Pro Annual","activationType":"node_locked",
+       "maxSeats":2,"durationDays":365}' -H "Content-Type: application/json"
+
+# 3. Mint a per-product ISSUANCE API key (plaintext is shown exactly once).
+curl -s -b cookies.txt -X POST http://localhost:8080/admin/products/<productId>/issuance-keys \
+  -d '{"name":"backend"}' -H "Content-Type: application/json"
+
+# 4. Issue a license — note the separate auth scheme and header.
+curl -s -X POST http://localhost:8080/issuance/licenses \
+  -H "X-Grantmint-Issuance-Key: <issuance key>" \
   -H "Content-Type: application/json" \
-  -d '{
-        "name": "Pro Annual",
-        "durationDays": 365,
-        "maxSeats": 2,
-        "nodeLocked": true,
-        "entitlements": { "team_sync": true, "max_devices": 2 }
-      }'
+  -d '{"policyId":"<policyId>","holder":{"name":"Jane Doe","email":"jane@example.com"}}'
+# => { "keyId": "K7P2-9QXM-4T1Y",
+#      "token": "eyJhbGciOiJFZERTQSJ9...three-segment-signed-token...",
+#      "status": "active", "expiresAt": "2027-07-11T00:00:00Z" }
 
-# 3. Issue a License to a customer.
-curl -s -X POST http://localhost:8080/api/v1/policies/pro-annual/licenses \
-  -H "Authorization: Bearer $GRANTMINT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"holderName":"Jane Doe","holderEmail":"jane@example.com"}'
-# => { "keyId": "GRNT-7F3A-9KQ2-X4M8",
-#      "token": "gm1.eyJ...signed-ed25519-token...",
-#      "status": "ACTIVE", "expiresAt": "2027-06-28T00:00:00Z" }
-
-# 4. Verify the token OFFLINE — no server, just the embedded public key.
-./grantmint verify \
-  --token "gm1.eyJ...signed-ed25519-token..." \
-  --public-key ./keys/ed25519.pub
-# ✅ Signature VALID  |  holder=Jane Doe  |  expires=2027-06-28
-#    entitlements: team_sync=true, max_devices=2
+# 5. Verify the token OFFLINE — no server, just the public key.
+java -jar grantmint-cli/target/grantmint-cli-*.jar verify \
+  --token "eyJ..." --public-key "<base64 public key>" --product acme-studio
+# VALID  |  holder=Jane Doe <jane@example.com>  |  expires 2027-07-11
 ```
 
-That is the full loop: a product, a policy, an issued license, and a token your client can prove is authentic **with no network**. For the detailed walkthrough see [QUICK_START.md](docs/getting-started/QUICK_START.md) and [SETUP_GUIDE.md](docs/getting-started/SETUP_GUIDE.md).
+That is the full loop: a product, a policy, an issued license, and a token your client can prove is authentic **with no network**. Swagger UI at `/swagger-ui.html` documents every endpoint (admin session required by default; set `GRANTMINT_OPENAPI_ACCESS=public` for open docs in dev).
 
 ---
 
 ## The signature demo: offline vs online
 
-This is the flow that makes the tradeoff visceral (and the one in the GIF above):
+This is the flow that makes the tradeoff visceral — the dashboard walks it as a guided 7-step page with an in-browser WebCrypto verifier:
 
 ```
 1. Create a Product + a "Pro" Policy  → entitlements + a 2-seat limit
@@ -240,7 +242,7 @@ This is the flow that makes the tradeoff visceral (and the one in the GIF above)
 9. The OFFLINE token still passes             → ⚠️ until its next online check-in
 ```
 
-> ⚠️ Step 9 is the honest, intellectually interesting money-shot: **revocation is an online property.** A token you verify offline cannot be revoked offline. Mitigations — online check-ins, short token lifetimes, and the stretch-goal signed CRL — are documented in [LICENSE_LIFECYCLE.md](docs/features/LICENSE_LIFECYCLE.md).
+> ⚠️ Step 9 is the honest, intellectually interesting money-shot: **revocation is an online property.** A token you verify offline cannot be revoked offline. Mitigations — online check-ins, short token lifetimes, and a stretch-goal signed CRL — are part of the documented design.
 
 ---
 
@@ -265,8 +267,6 @@ This is the flow that makes the tradeoff visceral (and the one in the GIF above)
   online check-ins to get the best of both. This is a tradeoff, not a flaw.
 ```
 
-Full treatment in [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) and [LICENSE_LIFECYCLE.md](docs/features/LICENSE_LIFECYCLE.md).
-
 ---
 
 ## Dual-license model
@@ -277,9 +277,11 @@ Grantmint is deliberately split so downstream apps can embed the client without 
 |---|---|---|
 | `grantmint-server`, `grantmint-core`, `grantmint-cli` | **AGPL-3.0** | The server is the product; copyleft keeps improvements open. |
 | `grantmint-spring-boot-starter` | **Apache-2.0** | Permissive so closed-source apps can embed the validator freely. |
-| Swift + Go verifier snippets | **Apache-2.0** | Same — drop them into shipping first-party products. |
+| Swift + Go verifiers (`verifiers/`) | **Apache-2.0** | Same — drop them into shipping first-party products. |
 
-> ℹ️ A Keygen-style fair-source / BUSL split is **deliberately not used**. That model defends a paid hosted service; Grantmint has none. The rationale is documented in [OPERATOR_AND_LICENSE_NOTES.md](docs/security/OPERATOR_AND_LICENSE_NOTES.md).
+The starter is **self-contained by construction** — an ArchUnit rule fails the build if its main sources ever touch the AGPL core.
+
+> ℹ️ A Keygen-style fair-source / BUSL split is **deliberately not used**. That model defends a paid hosted service; Grantmint has none.
 
 > ✅ **Yes, you can use the SDK in a closed-source commercial app.** It is Apache-2.0.
 
@@ -287,76 +289,21 @@ Grantmint is deliberately split so downstream apps can embed the client without 
 
 ## Documentation
 
-### Getting started
-- [Quick Start](docs/getting-started/QUICK_START.md) — TL;DR for experienced devs
-- [Setup Guide](docs/getting-started/SETUP_GUIDE.md) — full local setup
-- [Development Guide](docs/getting-started/DEVELOPMENT_GUIDE.md) — module layout, conventions, the no-Spring-in-core rule
+- **API reference** — Swagger UI at `/swagger-ui.html` on a running server (all three auth schemes documented; admin-gated by default).
+- **Cross-verifier contract** — the pinned token fixture consumed by the Java core, the starter, and the Go/Swift suites, guarded in CI by `scripts/check-fixture-parity.py`.
+- **Changelog** — [CHANGELOG.md](CHANGELOG.md).
+- **Licensing** — [LICENSE](LICENSE) plus per-module license files.
 
-### Architecture
-- [Architecture](docs/architecture/ARCHITECTURE.md) — flows, diagrams, the offline↔online tradeoff
-- [Tech Stack](docs/architecture/TECH_STACK.md) — every choice justified
-- [Database Schema](docs/architecture/DATABASE_SCHEMA.md) — products, policies, licenses, activations
-
-### API
-- [API Documentation](docs/api/API_DOCUMENTATION.md) — admin/issuance + client/validation endpoints
-
-### Features
-- [Admin & API Auth](docs/features/ADMIN_AND_API_AUTH.md) — the three auth schemes
-- [License Token Format](docs/features/LICENSE_TOKEN_FORMAT.md) — the signed-token structure
-- [Activation & Seats](docs/features/ACTIVATION_AND_SEATS.md) — node-locking, fingerprinting, heartbeats
-- [Entitlements](docs/features/ENTITLEMENTS.md) — feature flags + numeric limits
-- [License Lifecycle](docs/features/LICENSE_LIFECYCLE.md) — the state machine + revocation honesty
-- [Client SDK](docs/features/CLIENT_SDK.md) — the starter + Swift/Go verifiers
-- [Webhook Integration](docs/features/WEBHOOK_INTEGRATION.md) — the Stripe reference adapter
-
-### Deployment & operations
-- [Deployment Guide](docs/deployment/DEPLOYMENT_GUIDE.md)
-- [Docker Setup](docs/deployment/DOCKER_SETUP.md)
-- [CI/CD](docs/deployment/CI_CD.md)
-- [Scaling Guide](docs/deployment/SCALING_GUIDE.md)
-- [Monitoring & Logging](docs/operations/MONITORING_LOGGING.md)
-- [Maintenance](docs/operations/MAINTENANCE.md)
-- [Troubleshooting](docs/operations/TROUBLESHOOTING.md)
-
-### Security & compliance
-- [Security](docs/security/SECURITY.md) — threat model, signing-key protection
-- [Operator & License Notes](docs/security/OPERATOR_AND_LICENSE_NOTES.md) — PII handling + license rationale
-
-### Testing & contributing
-- [Testing](docs/testing/TESTING.md) — the property-based test suite as a centerpiece
-- [Contributing](docs/contributing/CONTRIBUTING.md)
-
-### Reference
-- [FAQ](docs/reference/FAQ.md)
-- [Roadmap](docs/reference/ROADMAP.md)
-- [Self-Hosting Footprint](docs/reference/SELF_HOSTING_FOOTPRINT.md)
-- [Performance Optimization](docs/reference/PERFORMANCE_OPTIMIZATION.md)
-- [Internationalization](docs/reference/INTERNATIONALIZATION.md)
-- [Accessibility](docs/reference/ACCESSIBILITY.md)
-
-### Project
-- [Changelog](CHANGELOG.md)
-- [License](LICENSE)
+The full design-doc set (architecture, token format, threat model, deployment and operations guides) is maintained alongside the project and will be published with the first public release.
 
 ---
 
 ## Contributing
 
-Contributions are welcome. New behavior must come with **property-based tests** (jqwik) for the issue/verify/expire/seat invariants, and the **`grantmint-core` module must remain free of Spring dependencies** (ArchUnit enforces it). See [CONTRIBUTING.md](docs/contributing/CONTRIBUTING.md) and [TESTING.md](docs/testing/TESTING.md).
+Contributions are welcome. New behavior touching issuance, signing, verification, or seat logic must come with **property-based tests** (jqwik), and the **`grantmint-core` module must remain free of framework dependencies** (ArchUnit enforces it, and the build fails otherwise). Run `./mvnw verify` before sending a PR — it runs the unit, property, integration (Testcontainers, needs Docker), and architecture suites.
 
 ---
 
 ## License
 
-Dual-licensed. **AGPL-3.0** for `grantmint-server`, `grantmint-core`, and `grantmint-cli`; **Apache-2.0** for `grantmint-spring-boot-starter` and the documented Swift/Go verifiers. See [LICENSE](LICENSE) and [OPERATOR_AND_LICENSE_NOTES.md](docs/security/OPERATOR_AND_LICENSE_NOTES.md).
-
----
-
-## Related Documentation
-
-- [Architecture](docs/architecture/ARCHITECTURE.md)
-- [Tech Stack](docs/architecture/TECH_STACK.md)
-- [License Token Format](docs/features/LICENSE_TOKEN_FORMAT.md)
-- [License Lifecycle](docs/features/LICENSE_LIFECYCLE.md)
-- [FAQ](docs/reference/FAQ.md)
-- [Changelog](CHANGELOG.md)
+Dual-licensed. **AGPL-3.0** for `grantmint-server`, `grantmint-core`, and `grantmint-cli`; **Apache-2.0** for `grantmint-spring-boot-starter` and the Swift/Go verifiers. See [LICENSE](LICENSE).
