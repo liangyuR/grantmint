@@ -257,9 +257,8 @@ pub async fn create_license(
     if obj.values().any(|x| {
         !x.is_boolean()
             && !x.is_string()
-            && !x
-                .as_i64()
-                .is_some_and(|n| n.unsigned_abs() <= 9_007_199_254_740_991)
+            && x.as_i64()
+                .is_none_or(|n| n.unsigned_abs() > 9_007_199_254_740_991)
     }) {
         return Err(bad("invalid_entitlements"));
     }
