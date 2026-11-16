@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useProducts } from '../products/ProductContext';
 import type { FormEvent } from 'react';
 import { api, ApiError } from '../api/client';
 import type { Product } from '../api/types';
@@ -15,7 +17,7 @@ interface ProductFormState {
 const EMPTY_FORM: ProductFormState = { slug: '', name: '', description: '' };
 
 export default function ProductsPage() {
-  const [products, setProducts] = useState<Product[] | null>(null);
+  const { products, loading, refreshProducts, selectProduct } = useProducts();
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -25,20 +27,6 @@ export default function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  async function load() {
-    setError(null);
-    try {
-      const data = await api.get<Product[]>('/admin/products');
-      setProducts(data);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load products.');
-    }
-  }
-
-  useEffect(() => {
-    void load();
-  }, []);
 
   function startCreate() {
     setEditingId(null);
@@ -79,7 +67,7 @@ export default function ProductsPage() {
         setMessage(`Created product "${form.name}".`);
       }
       cancelForm();
-      await load();
+      await refreshProducts();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Save failed.');
     } finally {
@@ -95,7 +83,7 @@ export default function ProductsPage() {
       await api.delete(`/admin/products/${pendingDelete.id}`);
       setMessage(`Deleted product "${pendingDelete.name}".`);
       setPendingDelete(null);
-      await load();
+      await refreshProducts();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Delete failed.');
     } finally {
@@ -127,6 +115,10 @@ export default function ProductsPage() {
               value={form.slug}
               disabled={editingId !== null}
               required
+              minLength={3}
+              maxLength={64}
+              pattern="[a-z0-9][a-z0-9-]{1,62}[a-z0-9]"
+              title="3–64 lowercase letters, digits or hyphens; start and end with a letter or digit"
               onChange={(e) => setForm({ ...form, slug: e.target.value })}
               placeholder="acme-notes"
             />
@@ -174,14 +166,14 @@ export default function ProductsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {products === null && (
+            {loading && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
                   Loading…
                 </td>
               </tr>
             )}
-            {products !== null && products.length === 0 && (
+            {!loading && products.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
                   No products yet.
@@ -191,7 +183,7 @@ export default function ProductsPage() {
             {products?.map((product) => (
               <tr key={product.id} className="hover:bg-gray-900/60">
                 <td className="px-4 py-2 font-mono text-gray-300">{product.slug}</td>
-                <td className="px-4 py-2 text-gray-100">{product.name}</td>
+                <td className="px-4 py-2 text-gray-100"><Link className="text-indigo-300 underline" to={`/products/${product.id}`} onClick={() => selectProduct(product.id)}>{product.name}</Link></td>
                 <td className="px-4 py-2 text-gray-400">{product.description || '—'}</td>
                 <td className="px-4 py-2 text-right">
                   <div className="flex justify-end gap-2">
@@ -222,7 +214,7 @@ export default function ProductsPage() {
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete product "${pendingDelete.name}"?`}
-          description="This cannot be undone. Policies and licenses under this product may be affected."
+          description="Products with licenses cannot be deleted. Deleting an unused product also deletes its policies and registered keys. This cannot be undone."
           confirmLabel="Delete"
           danger
           busy={deleting}

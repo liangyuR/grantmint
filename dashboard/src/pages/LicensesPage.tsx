@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useProducts } from '../products/ProductContext';
+import { useResource } from '../api/useResource';
 import type { FormEvent } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
-import type { IssueLicenseResponse, LicensePage, Product, Policy } from '../api/types';
+import type { IssueLicenseResponse, LicensePage, Policy } from '../api/types';
 import Alert from '../components/Alert';
 import StatusBadge from '../components/StatusBadge';
 import FormField, { buttonClasses, inputClasses, secondaryButtonClasses } from '../components/FormField';
@@ -12,40 +14,25 @@ const STATUS_OPTIONS = ['', 'created', 'active', 'suspended', 'expired', 'revoke
 
 export default function LicensesPage() {
   const navigate = useNavigate();
+  const { product } = useProducts();
+  const productId = product?.id ?? '';
   const [status, setStatus] = useState('');
   const [holderEmail, setHolderEmail] = useState('');
   const [keyId, setKeyId] = useState('');
   const [page, setPage] = useState(0);
 
-  const [result, setResult] = useState<LicensePage | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [showIssueForm, setShowIssueForm] = useState(false);
 
-  async function load() {
-    setError(null);
-    const params = new URLSearchParams();
-    if (status) params.set('status', status);
-    if (holderEmail) params.set('holderEmail', holderEmail);
-    if (keyId) params.set('keyId', keyId);
-    params.set('page', String(page));
-    params.set('size', String(PAGE_SIZE));
-    try {
-      const data = await api.get<LicensePage>(`/admin/licenses?${params.toString()}`);
-      setResult(data);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load licenses.');
-    }
-  }
-
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, holderEmail, keyId, page]);
+  const params = new URLSearchParams({ productId, page: String(page), size: String(PAGE_SIZE) });
+  if (status) params.set('status', status);
+  if (holderEmail) params.set('holderEmail', holderEmail);
+  if (keyId) params.set('keyId', keyId);
+  const { data: result, error, reload } = useResource<LicensePage>(productId ? `/admin/licenses?${params}` : null);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPage(0);
-    void load();
+    reload();
   }
 
   const totalPages = result ? Math.max(1, Math.ceil(result.total / result.size)) : 1;
@@ -54,7 +41,7 @@ export default function LicensesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-white">Licenses</h1>
-        <button type="button" className={buttonClasses} onClick={() => setShowIssueForm((v) => !v)}>
+        <button type="button" className={buttonClasses} disabled={!productId} onClick={() => setShowIssueForm((v) => !v)}>
           {showIssueForm ? 'Close' : 'Issue license'}
         </button>
       </div>
@@ -62,11 +49,11 @@ export default function LicensesPage() {
       {error && <Alert kind="error">{error}</Alert>}
 
       {/* Keep the form mounted after issuance — it swaps to the shown-once token panel. */}
-      {showIssueForm && <IssueLicenseForm onIssued={() => void load()} />}
+      {showIssueForm && <IssueLicenseForm onIssued={reload} />}
 
       <form onSubmit={applyFilters} className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-800 bg-gray-900 p-4">
         <FormField id="filter-status" label="Status">
-          <select id="filter-status" className={inputClasses} value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select id="filter-status" className={inputClasses} value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt || 'any'} value={opt}>
                 {opt || 'Any'}
@@ -79,7 +66,7 @@ export default function LicensesPage() {
             id="filter-holder-email"
             className={inputClasses}
             value={holderEmail}
-            onChange={(e) => setHolderEmail(e.target.value)}
+            onChange={(e) => { setHolderEmail(e.target.value); setPage(0); }}
             placeholder="jane@example.com"
           />
         </FormField>
@@ -88,7 +75,7 @@ export default function LicensesPage() {
             id="filter-key-id"
             className={inputClasses}
             value={keyId}
-            onChange={(e) => setKeyId(e.target.value)}
+            onChange={(e) => { setKeyId(e.target.value); setPage(0); }}
             placeholder="K7P2-9QXM-4T1Y"
           />
         </FormField>
@@ -106,14 +93,14 @@ export default function LicensesPage() {
               <th scope="col" className="px-4 py-2">Holder</th>
               <th scope="col" className="px-4 py-2">Seats</th>
               <th scope="col" className="px-4 py-2">Issued</th>
-              <th scope="col" className="px-4 py-2">Expires</th>
+              <th scope="col" className="px-4 py-2">Stops (Beijing)</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {result === null && (
+            {!error && result === null && (
               <tr>
                 <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
-                  Loading…
+                  {productId ? 'Loading…' : 'Select or create a product first.'}
                 </td>
               </tr>
             )}
@@ -149,7 +136,7 @@ export default function LicensesPage() {
                 </td>
                 <td className="px-4 py-2 text-gray-400">{new Date(license.issuedAt).toLocaleDateString()}</td>
                 <td className="px-4 py-2 text-gray-400">
-                  {license.expiresAt ? new Date(license.expiresAt).toLocaleDateString() : 'Perpetual'}
+                  {license.expiresAt ? new Date(license.expiresAt).toLocaleString('en-GB', { timeZone: 'Asia/Shanghai', hourCycle: 'h23' }) : 'Perpetual'}
                 </td>
               </tr>
             ))}
@@ -189,7 +176,6 @@ export default function LicensesPage() {
 }
 
 interface IssueFormState {
-  productId: string;
   policyId: string;
   holderName: string;
   holderEmail: string;
@@ -198,10 +184,10 @@ interface IssueFormState {
 }
 
 function IssueLicenseForm({ onIssued }: { onIssued: () => void }) {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [policies, setPolicies] = useState<Policy[]>([]);
+  const { product } = useProducts();
+  const productId = product?.id ?? '';
+  const { data: policies, error: policyError } = useResource<Policy[]>(productId ? `/admin/products/${productId}/policies` : null);
   const [form, setForm] = useState<IssueFormState>({
-    productId: '',
     policyId: '',
     holderName: '',
     holderEmail: '',
@@ -212,41 +198,19 @@ function IssueLicenseForm({ onIssued }: { onIssued: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [issued, setIssued] = useState<IssueLicenseResponse | null>(null);
 
-  useEffect(() => {
-    api
-      .get<Product[]>('/admin/products')
-      .then((data) => {
-        setProducts(data);
-        const first = data[0];
-        if (first) setForm((f) => ({ ...f, productId: first.id }));
-      })
-      .catch(() => setError('Failed to load products.'));
-  }, []);
-
-  useEffect(() => {
-    if (!form.productId) {
-      setPolicies([]);
-      return;
-    }
-    api
-      .get<Policy[]>(`/admin/products/${form.productId}/policies`)
-      .then((data) => {
-        setPolicies(data);
-        setForm((f) => ({ ...f, policyId: data[0]?.id ?? '' }));
-      })
-      .catch(() => setError('Failed to load policies.'));
-  }, [form.productId]);
+  const policyId = form.policyId || policies?.[0]?.id || '';
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!productId || !policies?.some((policy) => policy.id === policyId)) return;
     setIssuing(true);
     setError(null);
     try {
       const response = await api.post<IssueLicenseResponse>('/admin/licenses', {
-        productId: form.productId,
-        policyId: form.policyId,
+        productId,
+        policyId,
         holder: { name: form.holderName, email: form.holderEmail },
-        ...(form.expiresAt ? { expiresAt: new Date(form.expiresAt).toISOString() } : {}),
+        ...(form.expiresAt ? { expiresAt: new Date(`${form.expiresAt}T00:00:00+08:00`).toISOString() } : {}),
         ...(form.externalRef.trim() ? { externalRef: form.externalRef.trim() } : {}),
       });
       setIssued(response);
@@ -296,37 +260,27 @@ function IssueLicenseForm({ onIssued }: { onIssued: () => void }) {
           <Alert kind="error">{error}</Alert>
         </div>
       )}
-      <FormField id="issue-product" label="Product">
-        <select
-          id="issue-product"
-          className={inputClasses}
-          required
-          value={form.productId}
-          onChange={(e) => setForm({ ...form, productId: e.target.value })}
-        >
-          {products.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </FormField>
+      <div className="sm:col-span-3 text-sm text-gray-400">
+        Issuing for <strong className="text-gray-100">{product?.name}</strong>. This uses the current v1 license format; device-bound offline certificates are not available yet.
+      </div>
+      {policyError && <div className="sm:col-span-3"><Alert kind="error">{policyError}</Alert></div>}
       <FormField id="issue-policy" label="Policy">
         <select
           id="issue-policy"
           className={inputClasses}
           required
-          value={form.policyId}
+          value={policyId}
           onChange={(e) => setForm({ ...form, policyId: e.target.value })}
         >
-          {policies.map((p) => (
+          {!policies?.length && <option value="">{policies ? 'No policies for this product' : 'Loading policies…'}</option>}
+          {policies?.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name} ({p.maxSeats} seats)
             </option>
           ))}
         </select>
       </FormField>
-      <FormField id="issue-expires" label="Expires at" hint="Blank = use policy duration">
+      <FormField id="issue-expires" label="Stop date (Beijing time)" hint="Stops at 00:00 Asia/Shanghai. Blank = policy duration. Existing policy grace still applies to v1 tokens.">
         <input
           id="issue-expires"
           type="date"
@@ -363,7 +317,7 @@ function IssueLicenseForm({ onIssued }: { onIssued: () => void }) {
         />
       </FormField>
       <div className="flex items-end">
-        <button type="submit" disabled={issuing} className={buttonClasses}>
+        <button type="submit" disabled={issuing || !policyId || !!policyError} className={buttonClasses}>
           {issuing ? 'Issuing…' : 'Issue license'}
         </button>
       </div>

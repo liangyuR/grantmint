@@ -1,10 +1,13 @@
 package dev.hg.grantmint.server.admin;
 
 import dev.hg.grantmint.server.domain.Product;
+import dev.hg.grantmint.server.repo.LicenseRepository;
 import dev.hg.grantmint.server.repo.ProductRepository;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,9 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProductAdminService {
 
     private final ProductRepository productRepo;
+    private final LicenseRepository licenses;
 
-    public ProductAdminService(ProductRepository productRepo) {
+    public ProductAdminService(ProductRepository productRepo, LicenseRepository licenses) {
         this.productRepo = productRepo;
+        this.licenses = licenses;
     }
 
     @Transactional
@@ -55,6 +60,22 @@ public class ProductAdminService {
     @Transactional
     public void delete(UUID productId) {
         Product product = get(productId);
-        productRepo.delete(product);
+        if (licenses.existsByProductId(productId)) {
+            throw new ProductHasLicensesException();
+        }
+        try {
+            productRepo.delete(product);
+            productRepo.flush();
+        } catch (DataIntegrityViolationException ex) {
+            for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+                if (cause instanceof ConstraintViolationException violation
+                        && ("fk_licenses_product".equals(violation.getConstraintName())
+                                || "fk_licenses_policy".equals(violation.getConstraintName())
+                                || "fk_licenses_signing_key".equals(violation.getConstraintName()))) {
+                    throw new ProductHasLicensesException();
+                }
+            }
+            throw ex;
+        }
     }
 }

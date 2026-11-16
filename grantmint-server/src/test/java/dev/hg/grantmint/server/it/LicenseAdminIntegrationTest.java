@@ -89,6 +89,24 @@ class LicenseAdminIntegrationTest extends PostgresIntegrationTest {
     Path keyDir;
 
     @Test
+    void deletingProductWithIssuedLicenseReturnsConflictAndPreservesBoth() throws Exception {
+        String token = adminSessionToken();
+        Fixture fx = fixture("licadmin-product-delete");
+        String keyId = issue(token, fx, "Demo Customer", "demo@customer.example");
+
+        mockMvc.perform(delete("/admin/products/" + fx.productId()).header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("product_has_licenses"));
+
+        mockMvc.perform(get("/admin/products/" + fx.productId()).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(fx.productId().toString()));
+        mockMvc.perform(get("/admin/licenses/" + keyId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.productId").value(fx.productId().toString()));
+    }
+
+    @Test
     void listFiltersByStatusAndReturnsThePaginationEnvelope() throws Exception {
         String token = adminSessionToken();
         Fixture fx = fixture("licadmin-list");
