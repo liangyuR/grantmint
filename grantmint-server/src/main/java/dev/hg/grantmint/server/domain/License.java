@@ -33,8 +33,7 @@ public class License implements Persistable<UUID> {
 
     /**
      * Application-assigned at construction (not {@code @GeneratedValue}) so issuance can embed this
-     * id as the token's {@code lid} claim <em>before</em> persisting — the {@code signed_token}
-     * column is NOT NULL, so the token must be built (which needs the id) before the row is written.
+     * id as the legacy token's {@code lid} claim before persistence. Offline-device tokens are issued at activation.
      */
     @Id
     private UUID id = UUID.randomUUID();
@@ -63,14 +62,14 @@ public class License implements Persistable<UUID> {
     private String keyId;
 
     /** Full Ed25519-signed offline artefact (base64url). Immutable once written. */
-    @Column(name = "signed_token", nullable = false)
+    @Column(name = "signed_token")
     private String signedToken;
 
     /**
      * Short key ID of the signing key that minted this token, kept for rotation/audit. Plain
      * string — not an association, to avoid a join on the hot read path.
      */
-    @Column(name = "signing_key_id", nullable = false)
+    @Column(name = "signing_key_id")
     private String signingKeyId;
 
     @Convert(converter = LicenseStatusConverter.class)
@@ -129,6 +128,98 @@ public class License implements Persistable<UUID> {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    @Column(name = "mode")
+    private String mode = "legacy_v1";
+
+    @Column(name = "revision")
+    private int revision = 1;
+
+    @Column(name = "binding_version")
+    private int bindingVersion = 0;
+
+    @Column(name = "activation_secret_hash")
+    private String activationSecretHash;
+
+    @Column(name = "device_public_key")
+    private String devicePublicKey;
+
+    @Column(name = "fingerprint_hash")
+    private String fingerprintHash;
+
+    @Column(name = "fingerprint_version")
+    private Integer fingerprintVersion;
+
+    @Column(name = "certificate_serial")
+    private UUID certificateSerial;
+
+    public boolean isOfflineDevice() {
+        return "offline_device_v2".equals(mode);
+    }
+
+    public String getMode() {
+        return mode;
+    }
+
+    public void setMode(String value) {
+        this.mode = value;
+    }
+
+    public int getRevision() {
+        return revision;
+    }
+
+    public void setRevision(int value) {
+        this.revision = value;
+    }
+
+    public int getBindingVersion() {
+        return bindingVersion;
+    }
+
+    public void setBindingVersion(int value) {
+        this.bindingVersion = value;
+    }
+
+    public String getActivationSecretHash() {
+        return activationSecretHash;
+    }
+
+    public void setActivationSecretHash(String value) {
+        this.activationSecretHash = value;
+    }
+
+    public String getDevicePublicKey() {
+        return devicePublicKey;
+    }
+
+    public void setDevicePublicKey(String value) {
+        this.devicePublicKey = value;
+    }
+
+    public String getFingerprintHash() {
+        return fingerprintHash;
+    }
+
+    public void setFingerprintHash(String value) {
+        this.fingerprintHash = value;
+    }
+
+    public Integer getFingerprintVersion() {
+        return fingerprintVersion;
+    }
+
+    public void setFingerprintVersion(Integer value) {
+        this.fingerprintVersion = value;
+    }
+
+    public UUID getCertificateSerial() {
+        return certificateSerial;
+    }
+
+    public void setCertificateSerial(UUID value) {
+        this.certificateSerial = value;
+    }
 
     public UUID getId() {
         return id;

@@ -22,6 +22,10 @@ import org.springframework.data.repository.query.Param;
  */
 public interface LicenseRepository extends JpaRepository<License, UUID>, JpaSpecificationExecutor<License> {
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select l from License l where l.id = :id")
+    Optional<License> findByIdForUpdate(@Param("id") UUID id);
+
     /** Primary online lookup for validate/activate/heartbeat/revoke. */
     Optional<License> findByKeyId(String keyId);
 

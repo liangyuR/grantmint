@@ -47,6 +47,9 @@ public class ExpirySweepJob {
 
     private static final Logger log = LoggerFactory.getLogger(ExpirySweepJob.class);
 
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
+
     private final LicenseRepository licenses;
     private final ValidationCache cache;
     private final AuditService audit;
@@ -73,9 +76,11 @@ public class ExpirySweepJob {
         List<License> candidates = licenses.findExpiryCandidates(now);
         int expiredCount = 0;
         for (License license : candidates) {
+            entityManager.refresh(license, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+            if (license.getStatus() != LicenseStatus.ACTIVE && license.getStatus() != LicenseStatus.SUSPENDED) continue;
             // Lazy-loaded inside this transaction: each candidate may belong to a different policy
             // with a different grace window.
-            int graceDays = license.getPolicy().getGracePeriodDays();
+            int graceDays = license.isOfflineDevice() ? 0 : license.getPolicy().getGracePeriodDays();
             if (license.getExpiresAt().plusDays(graceDays).isAfter(now)) {
                 continue; // still within grace — leave it alone
             }

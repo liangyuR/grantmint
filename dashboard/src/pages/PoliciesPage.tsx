@@ -64,11 +64,11 @@ export default function PoliciesPage() {
     try {
       const parsed = JSON.parse(form.constraintsText || '{}');
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        throw new Error('Constraints must be a JSON object.');
+        throw new Error('约束必须是 JSON 对象。');
       }
       return parsed as Record<string, unknown>;
     } catch {
-      throw new Error('Constraints must be valid JSON (an object).');
+      throw new Error('请输入有效的 JSON 对象。');
     }
   }
 
@@ -91,12 +91,12 @@ export default function PoliciesPage() {
         constraints,
       };
       const created = await api.post<Policy>(`/admin/products/${productId}/policies`, body);
-      setMessage(`Created policy "${created.name}". Add entitlements below.`);
+      setMessage(`已创建策略“${created.name}”，可在下方添加权益。`);
       setShowCreateForm(false);
       reload();
       setSelectedPolicyId(created.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create policy.');
+      setError(err instanceof Error ? err.message : '创建策略失败。');
     } finally {
       setSaving(false);
     }
@@ -121,35 +121,35 @@ export default function PoliciesPage() {
         constraints,
       };
       await api.put(`/admin/policies/${selectedPolicy.id}`, body);
-      setMessage(`Updated policy "${form.name}".`);
+      setMessage(`已更新策略“${form.name}”。`);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update policy.');
+      setError(err instanceof Error ? err.message : '更新策略失败。');
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete(policy: Policy) {
-    if (!window.confirm(`Delete policy "${policy.name}"? This cannot be undone.`)) return;
+    if (!window.confirm(`删除策略“${policy.name}”？此操作不可撤销。`)) return;
     setError(null);
     try {
       await api.delete(`/admin/policies/${policy.id}`);
-      setMessage(`Deleted policy "${policy.name}".`);
+      setMessage(`已删除策略“${policy.name}”。`);
       if (selectedPolicyId === policy.id) setSelectedPolicyId(null);
       reload();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to delete policy.');
+      setError(err instanceof ApiError ? err.message : '删除策略失败。');
     }
   }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold text-white">Policies</h1>
+        <h1 className="text-xl font-semibold text-white">策略管理</h1>
         <div className="flex items-center gap-2">
           <button type="button" className={buttonClasses} disabled={!productId} onClick={startCreate}>
-            New policy
+            新建策略
           </button>
         </div>
       </div>
@@ -163,7 +163,7 @@ export default function PoliciesPage() {
           setForm={setForm}
           onSubmit={handleCreate}
           onCancel={() => setShowCreateForm(false)}
-          submitLabel="Create policy"
+          submitLabel="创建策略"
           saving={saving}
           codeEditable
         />
@@ -173,13 +173,13 @@ export default function PoliciesPage() {
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-900 text-xs uppercase tracking-wider text-gray-400">
             <tr>
-              <th scope="col" className="px-4 py-2">Code</th>
-              <th scope="col" className="px-4 py-2">Name</th>
-              <th scope="col" className="px-4 py-2">Seats</th>
-              <th scope="col" className="px-4 py-2">Duration</th>
-              <th scope="col" className="px-4 py-2">Trial</th>
+              <th scope="col" className="px-4 py-2">代码</th>
+              <th scope="col" className="px-4 py-2">名称</th>
+              <th scope="col" className="px-4 py-2">设备数</th>
+              <th scope="col" className="px-4 py-2">有效期</th>
+              <th scope="col" className="px-4 py-2">试用</th>
               <th scope="col" className="px-4 py-2">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">操作</span>
               </th>
             </tr>
           </thead>
@@ -187,14 +187,14 @@ export default function PoliciesPage() {
             {!loadError && policies === null && (
               <tr>
                 <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
-                  {productId ? 'Loading…' : 'Select or create a product first.'}
+                  {productId ? '正在加载…' : '请先选择或创建应用。'}
                 </td>
               </tr>
             )}
             {policies !== null && policies.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
-                  No policies for this product yet.
+                  此应用尚无策略。
                 </td>
               </tr>
             )}
@@ -204,26 +204,26 @@ export default function PoliciesPage() {
                 <td className="px-4 py-2 text-gray-100">{policy.name}</td>
                 <td className="px-4 py-2 text-gray-400">{policy.maxSeats}</td>
                 <td className="px-4 py-2 text-gray-400">
-                  {policy.durationDays != null ? `${policy.durationDays}d` : 'Perpetual'}
+                  {policy.durationDays != null ? `${policy.durationDays} 天` : '永久'}
                 </td>
-                <td className="px-4 py-2 text-gray-400">{policy.trial ? 'Yes' : 'No'}</td>
+                <td className="px-4 py-2 text-gray-400">{policy.trial ? '是' : '否'}</td>
                 <td className="px-4 py-2 text-right">
                   <div className="flex justify-end gap-2">
                     <button
                       type="button"
                       className={secondaryButtonClasses}
                       onClick={() => startEdit(policy)}
-                      aria-label={`Edit ${policy.name}`}
+                      aria-label={`编辑 ${policy.name}`}
                     >
-                      Edit
+                      编辑
                     </button>
                     <button
                       type="button"
                       className="rounded-md border border-red-900 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-red-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                       onClick={() => void handleDelete(policy)}
-                      aria-label={`Delete ${policy.name}`}
+                      aria-label={`删除 ${policy.name}`}
                     >
-                      Delete
+                      删除
                     </button>
                   </div>
                 </td>
@@ -241,7 +241,7 @@ export default function PoliciesPage() {
             setForm={setForm}
             onSubmit={handleUpdate}
             onCancel={() => setSelectedPolicyId(null)}
-            submitLabel="Save changes"
+            submitLabel="保存修改"
             saving={saving}
             codeEditable={false}
           />
@@ -265,7 +265,7 @@ interface PolicyFormProps {
 function PolicyForm({ form, setForm, onSubmit, onCancel, submitLabel, saving, codeEditable }: PolicyFormProps) {
   return (
     <form onSubmit={onSubmit} className="grid gap-4 rounded-lg border border-gray-800 bg-gray-900 p-4 sm:grid-cols-3">
-      <FormField id="policy-code" label="Code">
+      <FormField id="policy-code" label="代码">
         <input
           id="policy-code"
           className={inputClasses}
@@ -276,28 +276,28 @@ function PolicyForm({ form, setForm, onSubmit, onCancel, submitLabel, saving, co
           placeholder="pro-annual"
         />
       </FormField>
-      <FormField id="policy-name" label="Name">
+      <FormField id="policy-name" label="名称">
         <input
           id="policy-name"
           className={inputClasses}
           required
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="Pro Annual"
+          placeholder="专业版年度授权"
         />
       </FormField>
-      <FormField id="policy-activation-type" label="Activation type">
+      <FormField id="policy-activation-type" label="激活类型">
         <select
           id="policy-activation-type"
           className={inputClasses}
           value={form.activationType}
           onChange={(e) => setForm({ ...form, activationType: e.target.value })}
         >
-          <option value="node_locked">node_locked</option>
-          <option value="floating">floating</option>
+          <option value="node_locked">绑定设备（v1）</option>
+          <option value="floating">浮动授权（v1）</option>
         </select>
       </FormField>
-      <FormField id="policy-max-seats" label="Max seats">
+      <FormField id="policy-max-seats" label="最大设备数">
         <input
           id="policy-max-seats"
           type="number"
@@ -308,7 +308,7 @@ function PolicyForm({ form, setForm, onSubmit, onCancel, submitLabel, saving, co
           onChange={(e) => setForm({ ...form, maxSeats: e.target.value })}
         />
       </FormField>
-      <FormField id="policy-duration" label="Duration (days)" hint="Blank = perpetual">
+      <FormField id="policy-duration" label="有效天数" hint="留空表示永久">
         <input
           id="policy-duration"
           type="number"
@@ -318,7 +318,7 @@ function PolicyForm({ form, setForm, onSubmit, onCancel, submitLabel, saving, co
           onChange={(e) => setForm({ ...form, durationDays: e.target.value })}
         />
       </FormField>
-      <FormField id="policy-grace" label="Grace period (days)">
+      <FormField id="policy-grace" label="宽限期（天）">
         <input
           id="policy-grace"
           type="number"
@@ -329,7 +329,7 @@ function PolicyForm({ form, setForm, onSubmit, onCancel, submitLabel, saving, co
           onChange={(e) => setForm({ ...form, gracePeriodDays: e.target.value })}
         />
       </FormField>
-      <FormField id="policy-heartbeat" label="Heartbeat interval (seconds)">
+      <FormField id="policy-heartbeat" label="心跳间隔（秒）">
         <input
           id="policy-heartbeat"
           type="number"
@@ -340,18 +340,18 @@ function PolicyForm({ form, setForm, onSubmit, onCancel, submitLabel, saving, co
           onChange={(e) => setForm({ ...form, heartbeatIntervalSeconds: e.target.value })}
         />
       </FormField>
-      <FormField id="policy-trial" label="Trial">
+      <FormField id="policy-trial" label="试用">
         <select
           id="policy-trial"
           className={inputClasses}
           value={form.trial ? 'true' : 'false'}
           onChange={(e) => setForm({ ...form, trial: e.target.value === 'true' })}
         >
-          <option value="false">No</option>
-          <option value="true">Yes</option>
+          <option value="false">否</option>
+          <option value="true">是</option>
         </select>
       </FormField>
-      <FormField id="policy-constraints" label="Constraints (JSON)" hint='e.g. {"seats":2,"nodeLocked":true}'>
+      <FormField id="policy-constraints" label="约束（JSON）" hint='例如 {"seats":2,"nodeLocked":true}'>
         <textarea
           id="policy-constraints"
           className={`${inputClasses} font-mono`}
@@ -362,10 +362,10 @@ function PolicyForm({ form, setForm, onSubmit, onCancel, submitLabel, saving, co
       </FormField>
       <div className="sm:col-span-3 flex gap-2">
         <button type="submit" disabled={saving} className={buttonClasses}>
-          {saving ? 'Saving…' : submitLabel}
+          {saving ? '保存中…' : submitLabel}
         </button>
         <button type="button" className={secondaryButtonClasses} onClick={onCancel}>
-          Cancel
+          取消
         </button>
       </div>
     </form>

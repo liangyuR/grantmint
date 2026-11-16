@@ -1,6 +1,6 @@
 # Docker 部署管理控制台
 
-本入口部署当前已实现的多应用管理、策略和 v1 授权功能。v2 单设备离线证书、续期重签和到期提醒仍是[改造方案](../architecture/offline-device-licensing.md)，不能通过部署配置启用。
+本入口部署中文多应用管理控制台、v1 兼容授权及 v2 单设备激活服务。[v2 使用说明](../features/offline-device-activation.md)介绍长期离线校验流程；续期重签、设备恢复和业务应用接入仍属于[后续方案](../architecture/offline-device-licensing.md)。
 
 ## 本机启动
 

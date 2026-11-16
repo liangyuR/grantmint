@@ -47,7 +47,7 @@ export default function EntitlementsEditor({
       const data = await api.get<Entitlement[]>(`/admin/policies/${policyId}/entitlements`);
       setEntitlements(data);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load entitlements.');
+      setError(err instanceof ApiError ? err.message : '加载权益失败。');
     }
   }
 
@@ -60,7 +60,7 @@ export default function EntitlementsEditor({
     if (valueType === 'flag') return raw === 'true';
     if (valueType === 'limit') {
       const n = Number(raw);
-      if (Number.isNaN(n)) throw new Error('Limit value must be a number.');
+      if (Number.isNaN(n)) throw new Error('限额必须是数字。');
       return n;
     }
     return raw;
@@ -81,7 +81,7 @@ export default function EntitlementsEditor({
       await load();
       onChanged?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add entitlement.');
+      setError(err instanceof Error ? err.message : '添加权益失败。');
     } finally {
       setSaving(false);
     }
@@ -101,7 +101,7 @@ export default function EntitlementsEditor({
       await load();
       onChanged?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update entitlement.');
+      setError(err instanceof Error ? err.message : '更新权益失败。');
     } finally {
       setSaving(false);
     }
@@ -115,7 +115,7 @@ export default function EntitlementsEditor({
       await load();
       onChanged?.();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to delete entitlement.');
+      setError(err instanceof ApiError ? err.message : '删除权益失败。');
     } finally {
       setSaving(false);
     }
@@ -123,23 +123,23 @@ export default function EntitlementsEditor({
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-gray-200">Entitlements</h3>
+      <h3 className="text-sm font-semibold text-gray-200">功能权益</h3>
       {error && <Alert kind="error">{error}</Alert>}
 
-      {entitlements === null && <p className="text-sm text-gray-500">Loading…</p>}
+      {entitlements === null && <p className="text-sm text-gray-500">正在加载…</p>}
       {entitlements !== null && entitlements.length === 0 && (
-        <p className="text-sm text-gray-500">No entitlements defined yet.</p>
+        <p className="text-sm text-gray-500">尚未定义功能权益。</p>
       )}
 
       {entitlements !== null && entitlements.length > 0 && (
         <table className="w-full text-left text-sm">
           <thead className="text-xs uppercase tracking-wider text-gray-500">
             <tr>
-              <th scope="col" className="py-1 pr-2">Code</th>
-              <th scope="col" className="py-1 pr-2">Type</th>
-              <th scope="col" className="py-1 pr-2">Value</th>
+              <th scope="col" className="py-1 pr-2">代码</th>
+              <th scope="col" className="py-1 pr-2">类型</th>
+              <th scope="col" className="py-1 pr-2">值</th>
               <th scope="col" className="py-1 pr-2">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">操作</span>
               </th>
             </tr>
           </thead>
@@ -149,21 +149,21 @@ export default function EntitlementsEditor({
               return (
                 <tr key={entitlement.id}>
                   <td className="py-1.5 pr-2 font-mono text-gray-300">{entitlement.code}</td>
-                  <td className="py-1.5 pr-2 text-gray-400">{entitlement.valueType}</td>
+                  <td className="py-1.5 pr-2 text-gray-400">{{ flag: '开关', limit: '数值限额', string: '文本' }[entitlement.valueType]}</td>
                   <td className="py-1.5 pr-2">
                     {entitlement.valueType === 'flag' ? (
                       <select
-                        aria-label={`Value for ${entitlement.code}`}
+                        aria-label={`${entitlement.code} 的值`}
                         className={inputClasses}
                         value={currentRaw}
                         onChange={(e) => setEditing({ ...editing, [entitlement.id]: e.target.value })}
                       >
-                        <option value="true">true</option>
-                        <option value="false">false</option>
+                        <option value="true">启用</option>
+                        <option value="false">关闭</option>
                       </select>
                     ) : (
                       <input
-                        aria-label={`Value for ${entitlement.code}`}
+                        aria-label={`${entitlement.code} 的值`}
                         className={inputClasses}
                         type={entitlement.valueType === 'limit' ? 'number' : 'text'}
                         value={currentRaw}
@@ -179,16 +179,16 @@ export default function EntitlementsEditor({
                         disabled={saving}
                         onClick={() => void handleUpdate(entitlement)}
                       >
-                        Save
+                        保存
                       </button>
                       <button
                         type="button"
                         className="rounded-md border border-red-900 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-red-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                         disabled={saving}
                         onClick={() => void handleDelete(entitlement)}
-                        aria-label={`Delete entitlement ${entitlement.code}`}
+                        aria-label={`删除权益 ${entitlement.code}`}
                       >
-                        Delete
+                        删除
                       </button>
                     </div>
                   </td>
@@ -200,19 +200,19 @@ export default function EntitlementsEditor({
       )}
 
       <form onSubmit={(e) => void handleCreate(e)} className="grid gap-3 rounded-md border border-gray-800 p-3 sm:grid-cols-4">
-        <FormField id="new-ent-code" label="Code">
+        <FormField id="new-ent-code" label="代码">
           <input
             id="new-ent-code"
             className={inputClasses}
             required
             pattern="^[a-z][a-z0-9_]{0,62}$"
-            title="lowercase, starts with a letter, letters/digits/underscore"
+            title="以小写字母开头，仅使用小写字母、数字或下划线"
             value={newForm.code}
             onChange={(e) => setNewForm({ ...newForm, code: e.target.value })}
             placeholder="max_devices"
           />
         </FormField>
-        <FormField id="new-ent-type" label="Type">
+        <FormField id="new-ent-type" label="类型">
           <select
             id="new-ent-type"
             className={inputClasses}
@@ -225,12 +225,12 @@ export default function EntitlementsEditor({
               })
             }
           >
-            <option value="flag">flag (boolean)</option>
-            <option value="limit">limit (number)</option>
-            <option value="string">string</option>
+            <option value="flag">开关</option>
+            <option value="limit">数值限额</option>
+            <option value="string">文本</option>
           </select>
         </FormField>
-        <FormField id="new-ent-value" label="Value">
+        <FormField id="new-ent-value" label="值">
           {newForm.valueType === 'flag' ? (
             <select
               id="new-ent-value"
@@ -238,8 +238,8 @@ export default function EntitlementsEditor({
               value={newForm.value}
               onChange={(e) => setNewForm({ ...newForm, value: e.target.value })}
             >
-              <option value="true">true</option>
-              <option value="false">false</option>
+              <option value="true">启用</option>
+              <option value="false">关闭</option>
             </select>
           ) : (
             <input
@@ -254,7 +254,7 @@ export default function EntitlementsEditor({
         </FormField>
         <div className="flex items-end">
           <button type="submit" disabled={saving} className={buttonClasses}>
-            Add entitlement
+            添加权益
           </button>
         </div>
       </form>

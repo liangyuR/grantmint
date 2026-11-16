@@ -9,7 +9,7 @@ export default function ProtectedRoute() {
   if (status === 'checking') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-950 text-gray-400">
-        <p role="status">Checking session…</p>
+        <p role="status">正在检查登录状态…</p>
       </div>
     );
   }

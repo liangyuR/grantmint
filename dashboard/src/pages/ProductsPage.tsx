@@ -57,19 +57,19 @@ export default function ProductsPage() {
           name: form.name,
           description: form.description || null,
         });
-        setMessage(`Updated product "${form.name}".`);
+        setMessage(`已更新应用“${form.name}”。`);
       } else {
         await api.post('/admin/products', {
           slug: form.slug,
           name: form.name,
           description: form.description || null,
         });
-        setMessage(`Created product "${form.name}".`);
+        setMessage(`已创建应用“${form.name}”。`);
       }
       cancelForm();
       await refreshProducts();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Save failed.');
+      setError(err instanceof ApiError ? err.message : '保存失败。');
     } finally {
       setSaving(false);
     }
@@ -81,11 +81,11 @@ export default function ProductsPage() {
     setError(null);
     try {
       await api.delete(`/admin/products/${pendingDelete.id}`);
-      setMessage(`Deleted product "${pendingDelete.name}".`);
+      setMessage(`已删除应用“${pendingDelete.name}”。`);
       setPendingDelete(null);
       await refreshProducts();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Delete failed.');
+      setError(err instanceof ApiError ? err.message : '删除失败。');
     } finally {
       setDeleting(false);
     }
@@ -94,9 +94,9 @@ export default function ProductsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-white">Products</h1>
+        <h1 className="text-xl font-semibold text-white">应用管理</h1>
         <button type="button" className={buttonClasses} onClick={startCreate}>
-          New product
+          新建应用
         </button>
       </div>
 
@@ -108,7 +108,7 @@ export default function ProductsPage() {
           onSubmit={(e) => void handleSubmit(e)}
           className="grid gap-4 rounded-lg border border-gray-800 bg-gray-900 p-4 sm:grid-cols-3"
         >
-          <FormField id="product-slug" label="Slug">
+          <FormField id="product-slug" label="应用标识">
             <input
               id="product-slug"
               className={inputClasses}
@@ -118,12 +118,12 @@ export default function ProductsPage() {
               minLength={3}
               maxLength={64}
               pattern="[a-z0-9][a-z0-9-]{1,62}[a-z0-9]"
-              title="3–64 lowercase letters, digits or hyphens; start and end with a letter or digit"
+              title="3～64 位小写字母、数字或连字符；首尾为字母或数字"
               onChange={(e) => setForm({ ...form, slug: e.target.value })}
               placeholder="acme-notes"
             />
           </FormField>
-          <FormField id="product-name" label="Name">
+          <FormField id="product-name" label="名称">
             <input
               id="product-name"
               className={inputClasses}
@@ -133,21 +133,21 @@ export default function ProductsPage() {
               placeholder="Acme Notes"
             />
           </FormField>
-          <FormField id="product-description" label="Description">
+          <FormField id="product-description" label="说明">
             <input
               id="product-description"
               className={inputClasses}
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Optional"
+              placeholder="可选"
             />
           </FormField>
           <div className="sm:col-span-3 flex gap-2">
             <button type="submit" disabled={saving} className={buttonClasses}>
-              {saving ? 'Saving…' : editingId ? 'Save changes' : 'Create product'}
+              {saving ? '保存中…' : editingId ? '保存修改' : '创建应用'}
             </button>
             <button type="button" className={secondaryButtonClasses} onClick={cancelForm}>
-              Cancel
+              取消
             </button>
           </div>
         </form>
@@ -157,11 +157,11 @@ export default function ProductsPage() {
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-900 text-xs uppercase tracking-wider text-gray-400">
             <tr>
-              <th scope="col" className="px-4 py-2">Slug</th>
-              <th scope="col" className="px-4 py-2">Name</th>
-              <th scope="col" className="px-4 py-2">Description</th>
+              <th scope="col" className="px-4 py-2">应用标识</th>
+              <th scope="col" className="px-4 py-2">名称</th>
+              <th scope="col" className="px-4 py-2">说明</th>
               <th scope="col" className="px-4 py-2">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">操作</span>
               </th>
             </tr>
           </thead>
@@ -169,14 +169,14 @@ export default function ProductsPage() {
             {loading && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
-                  Loading…
+                  正在加载…
                 </td>
               </tr>
             )}
             {!loading && products.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
-                  No products yet.
+                  尚未创建应用。
                 </td>
               </tr>
             )}
@@ -191,17 +191,17 @@ export default function ProductsPage() {
                       type="button"
                       className={secondaryButtonClasses}
                       onClick={() => startEdit(product)}
-                      aria-label={`Edit ${product.name}`}
+                      aria-label={`编辑 ${product.name}`}
                     >
-                      Edit
+                      编辑
                     </button>
                     <button
                       type="button"
                       className="rounded-md border border-red-900 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-red-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                       onClick={() => setPendingDelete(product)}
-                      aria-label={`Delete ${product.name}`}
+                      aria-label={`删除 ${product.name}`}
                     >
-                      Delete
+                      删除
                     </button>
                   </div>
                 </td>
@@ -213,9 +213,9 @@ export default function ProductsPage() {
 
       {pendingDelete && (
         <ConfirmDialog
-          title={`Delete product "${pendingDelete.name}"?`}
-          description="Products with licenses cannot be deleted. Deleting an unused product also deletes its policies and registered keys. This cannot be undone."
-          confirmLabel="Delete"
+          title={`删除应用“${pendingDelete.name}”？`}
+          description="已有授权的应用不能删除。删除其他应用会同时删除其策略、注册密钥和 API 密钥，此操作不可撤销。"
+          confirmLabel="删除"
           danger
           busy={deleting}
           onCancel={() => setPendingDelete(null)}

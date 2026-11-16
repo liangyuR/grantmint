@@ -13,6 +13,7 @@ useDefault = true
 [allowlist]
 description = "Public, deterministic cross-language test fixtures — not real secrets."
 paths = [
+    '''^grantmint-core/src/test/resources/offline-device-v2\.json$''',
     '''grantmint-core/src/test/java/dev/hg/grantmint/core/token/CrossVerifierFixtureTest\.java''',
     '''docs/testing/CROSS_VERIFIER_FIXTURES\.md''',
 ]

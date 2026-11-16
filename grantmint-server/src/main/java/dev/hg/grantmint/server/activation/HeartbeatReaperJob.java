@@ -77,6 +77,7 @@ public class HeartbeatReaperJob {
         List<MachineActivation> candidates = activations.findStaleActive(mostPermissiveCutoff);
         int reapedCount = 0;
         for (MachineActivation activation : candidates) {
+            if (activation.getLicense().isOfflineDevice()) continue;
             // Lazy-loaded inside this transaction: each candidate's license may sit under a different
             // policy with a different heartbeat interval.
             int intervalSeconds = activation.getLicense().getPolicy().getHeartbeatIntervalSeconds();

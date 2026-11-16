@@ -115,6 +115,9 @@ export interface LicenseListItem {
   keyId: string;
   productId: string;
   status: LicenseStatus;
+  mode?: string;
+  revision?: number;
+  bindingVersion?: number;
   holderName: string;
   holderEmail: string;
   maxSeats: number;
@@ -152,12 +155,18 @@ export interface LicenseDetail {
   productId: string;
   policyId: string;
   status: LicenseStatus;
+  mode?: string;
+  revision?: number;
+  bindingVersion?: number;
+  devicePublicKey?: string | null;
+  fingerprintHash?: string | null;
+  fingerprintVersion?: number | null;
   holderName: string;
   holderEmail: string;
   entitlements: Record<string, unknown>;
   constraints: Record<string, unknown>;
   maxSeats: number;
-  signedToken: string;
+  signedToken: string | null;
   revocationReason: string | null;
   issuedAt: string;
   activatedAt: string | null;
@@ -183,6 +192,15 @@ export interface IssueLicenseResponse {
   token: string;
   status: string;
   expiresAt: string | null;
+}
+
+export interface CreateOfflineLicenseResponse {
+  licenseId: string;
+  keyId: string;
+  activationSecret: string;
+  mode: 'offline_device_v2';
+  status: string;
+  expiresAt: string;
 }
 
 // ─── Validation / Activation surfaces (v1, validation-key protected) ────────

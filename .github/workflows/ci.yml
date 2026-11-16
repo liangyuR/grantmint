@@ -26,6 +26,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  rust-offline:
+    name: Rust offline verifier (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: verifiers/rust
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - run: cargo +stable fmt --check
+      - run: cargo +stable test --locked
+      - run: cargo +stable clippy --locked --all-targets -- -D warnings
+
   verify:
     name: mvn verify (tests + guards)
     runs-on: ubuntu-latest # Docker is available for Testcontainers

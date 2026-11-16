@@ -289,6 +289,7 @@ The starter is **self-contained by construction** — an ArchUnit rule fails the
 
 ## Documentation
 
+- **Device-bound offline licensing (v2)** — [activation guide](docs/features/offline-device-activation.md) and [Rust verifier / CLI](verifiers/rust/README.md). The console defaults to Chinese and v2 creation; legacy v1 issuance remains available explicitly.
 - **Multi-application console** — [operator guide](docs/features/multi-application-console.md) and [Docker deployment](docs/deployment/docker.md) for a same-origin dashboard and API, including HTTPS setup.
 - **Fork design documents** — [docs/README.md](docs/README.md), including the proposed multi-application, device-bound offline licensing design.
 - **API reference** — Swagger UI at `/swagger-ui.html` on a running server (all three auth schemes documented; admin-gated by default).

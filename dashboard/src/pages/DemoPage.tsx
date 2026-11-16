@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { api, ApiError } from '../api/client';
+import { api, ApiError, localizedError } from '../api/client';
 import type {
   ActivateResponse,
   ApiErrorBody,
@@ -26,20 +26,25 @@ interface ValidationCallResult<T> {
 }
 
 async function callValidationApi<T>(path: string, validationKey: string, body: unknown): Promise<ValidationCallResult<T>> {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Grantmint-Validation': validationKey,
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await response.text();
-  const parsed = text.length > 0 ? (JSON.parse(text) as unknown) : undefined;
-  if (response.ok) {
-    return { ok: true, status: response.status, data: parsed as T };
+  try {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Grantmint-Validation': validationKey,
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    const parsed = text.length > 0 ? (JSON.parse(text) as unknown) : undefined;
+    if (response.ok) {
+      return { ok: true, status: response.status, data: parsed as T };
+    }
+    const error = parsed as ApiErrorBody | undefined;
+    return { ok: false, status: response.status, errorBody: { error: error?.error ?? 'request_failed', message: localizedError(response.status, error?.error) } };
+  } catch {
+    return { ok: false, status: 0, errorBody: { error: 'network_error', message: '请求失败，请检查网络和服务器响应。' } };
   }
-  return { ok: false, status: response.status, errorBody: parsed as ApiErrorBody };
 }
 
 // ─── Step state ──────────────────────────────────────────────────────────────
@@ -132,21 +137,21 @@ export default function DemoPage() {
     try {
       const verification = await verifyTokenOffline(token, publicKeyBase64);
       setState({ kind: 'success', result: verification });
-    } catch (err) {
-      setState({ kind: 'error', status: 0, body: { error: 'offline_verify_failed', message: (err as Error).message } });
+    } catch {
+      setState({ kind: 'error', status: 0, body: { error: 'offline_verify_failed', message: '离线验签失败，请检查 v1 证书格式和公钥。' } });
     }
   }
 
   async function runRevoke() {
     setRevokeStep({ kind: 'loading' });
     try {
-      await api.delete(`/admin/licenses/${keyId}`, { reason: 'Grantmint operator console demo' });
+      await api.delete(`/admin/licenses/${keyId}`, { reason: 'Grantmint 管理控制台演示' });
       setRevokeStep({ kind: 'success', result: { revoked: true } });
     } catch (err) {
       if (err instanceof ApiError) {
         setRevokeStep({ kind: 'error', status: err.status, body: { error: err.code ?? 'error', message: err.message } });
       } else {
-        setRevokeStep({ kind: 'error', status: 0, body: { error: 'error', message: 'Revoke failed.' } });
+        setRevokeStep({ kind: 'error', status: 0, body: { error: 'error', message: '撤销失败。' } });
       }
     }
   }
@@ -164,10 +169,9 @@ export default function DemoPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-white">Offline ↔ online demo</h1>
+        <h1 className="text-xl font-semibold text-white">v1 在线与离线演示</h1>
         <p className="mt-1 max-w-2xl text-sm text-gray-400">
-          A signed token you can verify offline is exactly one you cannot revoke or seat-count without
-          connectivity. This walkthrough proves both halves of that tradeoff with one real license.
+          本页仅演示旧版 v1 协议，不支持 v2 设备证书。离线验签无法即时获知服务端撤销，设备绑定授权请使用 Rust 客户端。
         </p>
       </div>
 
@@ -186,8 +190,8 @@ export default function DemoPage() {
       <ol className="space-y-4">
         <StepCard
           index={1}
-          title="Activate device A"
-          description={`Claim a seat with fingerprint ${fingerprintA}.`}
+          title="激活设备 A"
+          description={`使用指纹 ${fingerprintA} 激活设备。`}
           disabled={!readyForOnlineSteps}
           action={
             <button
@@ -196,17 +200,17 @@ export default function DemoPage() {
               disabled={!readyForOnlineSteps || stepA.kind === 'loading'}
               onClick={() => void runActivate(fingerprintA, setStepA)}
             >
-              {stepA.kind === 'loading' ? 'Activating…' : 'Activate device A'}
+              {stepA.kind === 'loading' ? '激活中…' : '激活设备 A'}
             </button>
           }
         >
-          <StepResult state={stepA} successCopy={(r) => `Seat claimed. Seats used: ${r.seatsUsed}/${r.seatsTotal}.`} />
+          <StepResult state={stepA} successCopy={(r) => `激活成功，已用设备数：${r.seatsUsed}/${r.seatsTotal}。`} />
         </StepCard>
 
         <StepCard
           index={2}
-          title="Activate device B"
-          description={`Claim a second seat with fingerprint ${fingerprintB}.`}
+          title="激活设备 B"
+          description={`使用指纹 ${fingerprintB} 激活第二台设备。`}
           disabled={!readyForOnlineSteps}
           action={
             <button
@@ -215,17 +219,17 @@ export default function DemoPage() {
               disabled={!readyForOnlineSteps || stepB.kind === 'loading'}
               onClick={() => void runActivate(fingerprintB, setStepB)}
             >
-              {stepB.kind === 'loading' ? 'Activating…' : 'Activate device B'}
+              {stepB.kind === 'loading' ? '激活中…' : '激活设备 B'}
             </button>
           }
         >
-          <StepResult state={stepB} successCopy={(r) => `Seat claimed. Seats used: ${r.seatsUsed}/${r.seatsTotal}.`} />
+          <StepResult state={stepB} successCopy={(r) => `激活成功，已用设备数：${r.seatsUsed}/${r.seatsTotal}。`} />
         </StepCard>
 
         <StepCard
           index={3}
-          title="Activate device C — expect the seat limit to bite"
-          description={`Try a third device (${fingerprintC}) on a 2-seat license. This should be REJECTED with 409 seat_limit_exceeded — that rejection is the feature working.`}
+          title="激活设备 C：验证设备数上限"
+          description={`在双设备授权上尝试第三台设备 ${fingerprintC}，应返回 409 seat_limit_exceeded。`}
           disabled={!readyForOnlineSteps}
           action={
             <button
@@ -234,27 +238,27 @@ export default function DemoPage() {
               disabled={!readyForOnlineSteps || stepC.kind === 'loading'}
               onClick={() => void runActivate(fingerprintC, setStepC)}
             >
-              {stepC.kind === 'loading' ? 'Activating…' : 'Activate device C'}
+              {stepC.kind === 'loading' ? '激活中…' : '激活设备 C'}
             </button>
           }
         >
           {stepC.kind === 'error' && stepC.status === 409 ? (
             <Alert kind="success">
-              Seat limit enforced as expected: {stepC.body?.error ?? 'seat_limit_exceeded'} — {stepC.body?.message}
+              设备数限制符合预期： {stepC.body?.error ?? 'seat_limit_exceeded'} — {stepC.body?.message}
             </Alert>
           ) : (
-            <StepResult state={stepC} successCopy={() => 'Unexpected: this activation succeeded — seat limit was not enforced.'} />
+            <StepResult state={stepC} successCopy={() => '异常：激活成功，设备数量限制未生效。'} />
           )}
         </StepCard>
 
         <StepCard
           index={4}
-          title="Offline check — verify the token in this browser"
-          description="No server call. WebCrypto verifies the Ed25519 signature over the token locally using only the pasted public key."
+          title="浏览器本地离线验签"
+          description="不调用服务器，使用输入的公钥通过 WebCrypto 在本地校验 Ed25519 签名。"
           disabled={!readyForOfflineSteps}
           action={
             !ed25519Supported ? (
-              <Alert kind="info">Offline verification unavailable in this browser (no WebCrypto Ed25519 support).</Alert>
+              <Alert kind="info">当前浏览器不支持 WebCrypto Ed25519 离线验签。</Alert>
             ) : (
               <button
                 type="button"
@@ -262,23 +266,21 @@ export default function DemoPage() {
                 disabled={!readyForOfflineSteps || offlineBefore.kind === 'loading'}
                 onClick={() => void runOfflineCheck(setOfflineBefore)}
               >
-                {offlineBefore.kind === 'loading' ? 'Verifying…' : 'Run offline check'}
+                {offlineBefore.kind === 'loading' ? '校验中…' : '执行离线校验'}
               </button>
             )
           }
         >
           <p className="text-xs text-gray-500">
-            This in-browser verifier enforces the same strict wire contract as the shipped SDK
-            verifiers (header pinning, strict JSON, the full claim table) — but it is illustrative
-            for this demo page, not the SDK itself. Use the starter/CLI/SDKs for real integrations.
+            此演示仅验证 v1 格式。实际设备绑定与长期离线接入请使用 Rust SDK，不要把浏览器演示当作客户授权检查。
           </p>
           <OfflineResult state={offlineBefore} />
         </StepCard>
 
         <StepCard
           index={5}
-          title="Revoke the license"
-          description="Terminal action via the admin API. After this, online validation must reject the license."
+          title="撤销授权"
+          description="通过管理 API 执行不可撤销的操作，之后在线校验应拒绝此授权。"
           disabled={!readyForOnlineSteps}
           action={
             <button
@@ -287,11 +289,11 @@ export default function DemoPage() {
               disabled={!readyForOnlineSteps || revokeStep.kind === 'loading'}
               onClick={() => void runRevoke()}
             >
-              {revokeStep.kind === 'loading' ? 'Revoking…' : 'Revoke license'}
+              {revokeStep.kind === 'loading' ? '撤销中…' : '撤销授权'}
             </button>
           }
         >
-          {revokeStep.kind === 'success' && <Alert kind="success">License revoked.</Alert>}
+          {revokeStep.kind === 'success' && <Alert kind="success">授权已撤销。</Alert>}
           {revokeStep.kind === 'error' && (
             <Alert kind="error">
               {revokeStep.body?.error ?? 'error'} — {revokeStep.body?.message}
@@ -301,8 +303,8 @@ export default function DemoPage() {
 
         <StepCard
           index={6}
-          title="Online validate after revoke — expect 422"
-          description="The online layer knows about revocation immediately."
+          title="撤销后的在线校验：应返回 422"
+          description="在线服务会根据已撤销状态拒绝授权。"
           disabled={!readyForOnlineSteps}
           action={
             <button
@@ -311,24 +313,24 @@ export default function DemoPage() {
               disabled={!readyForOnlineSteps || validateAfterRevoke.kind === 'loading'}
               onClick={() => void runValidateAfterRevoke()}
             >
-              {validateAfterRevoke.kind === 'loading' ? 'Validating…' : 'Validate license'}
+              {validateAfterRevoke.kind === 'loading' ? '校验中…' : '校验授权'}
             </button>
           }
         >
           {validateAfterRevoke.kind === 'error' && validateAfterRevoke.status === 422 ? (
             <Alert kind="success">
-              Correctly rejected: {validateAfterRevoke.body?.error ?? 'license_revoked'} —{' '}
+              已按预期拒绝： {validateAfterRevoke.body?.error ?? 'license_revoked'} —{' '}
               {validateAfterRevoke.body?.message}
             </Alert>
           ) : (
-            <StepResult state={validateAfterRevoke} successCopy={() => 'Unexpected: validation still reports valid.'} />
+            <StepResult state={validateAfterRevoke} successCopy={() => '异常：在线校验仍返回有效。'} />
           )}
         </StepCard>
 
         <StepCard
           index={7}
-          title="Offline check again — still VALID"
-          description="Re-run the same offline verification against the same token. It still passes: the token cannot un-sign itself. This is the documented offline-revocation window, closed only by the token's own expiry (exp)."
+          title="再次离线校验：仍可能有效"
+          description="再次校验同一证书。撤销无法改变已下载的签名，离线证书到期前仍可通过校验。"
           disabled={!readyForOfflineSteps}
           action={
             ed25519Supported && (
@@ -338,7 +340,7 @@ export default function DemoPage() {
                 disabled={!readyForOfflineSteps || offlineAfter.kind === 'loading'}
                 onClick={() => void runOfflineCheck(setOfflineAfter)}
               >
-                {offlineAfter.kind === 'loading' ? 'Verifying…' : 'Run offline check again'}
+                {offlineAfter.kind === 'loading' ? '校验中…' : '再次离线校验'}
               </button>
             )
           }
@@ -346,8 +348,7 @@ export default function DemoPage() {
           <OfflineResult state={offlineAfter} />
           {offlineAfter.kind === 'success' && offlineAfter.result.signatureValid && !offlineAfter.result.expired && (
             <Alert kind="info">
-              This is expected and honest, not a bug: offline verification only proves authenticity and expiry — it
-              has no way to know the license was revoked online. See docs/features/LICENSE_TOKEN_FORMAT.md.
+              这是离线授权的限制：签名有效且未到期的证书无法获知服务端刚发生的撤销。
             </Alert>
           )}
         </StepCard>
@@ -362,7 +363,7 @@ function StepResult<T>({ state, successCopy }: { state: StepState<T>; successCop
   return (
     <Alert kind="error">
       {state.status ? `HTTP ${state.status} — ` : ''}
-      {state.body?.error ?? 'error'}: {state.body?.message ?? 'Request failed.'}
+      {state.body?.error ?? 'error'}: {state.body?.message ?? '请求失败。'}
     </Alert>
   );
 }
@@ -371,7 +372,7 @@ function OfflineResult({ state }: { state: StepState<OfflineVerificationResult> 
   if (state.kind === 'idle' || state.kind === 'loading') return null;
   if (state.kind === 'error') {
     return (
-      <Alert kind="error">{state.body?.message ?? 'Offline verification failed.'}</Alert>
+      <Alert kind="error">{state.body?.message ?? '离线校验失败。'}</Alert>
     );
   }
   const { signatureValid, expired, notYetValid, payload } = state.result;
@@ -380,11 +381,11 @@ function OfflineResult({ state }: { state: StepState<OfflineVerificationResult> 
     <div className="space-y-2">
       <Alert kind={overallValid ? 'success' : 'error'}>
         {overallValid
-          ? 'VALID — signature verified locally, no network call made.'
-          : `INVALID — signatureValid=${signatureValid}, expired=${expired}, notYetValid=${notYetValid}.`}
+          ? '有效：已在本地验证签名，没有发起网络请求。'
+          : `无效：签名有效=${signatureValid}，已到期=${expired}，尚未生效=${notYetValid}。`}
       </Alert>
       <div className="rounded-md border border-gray-800 bg-gray-950 p-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Decoded claims (offline, unverified against the server)</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">证书声明（离线解码，未向服务器确认状态）</p>
         <pre className="mt-1 overflow-x-auto text-xs text-gray-300">{JSON.stringify(payload, null, 2)}</pre>
       </div>
     </div>
@@ -419,7 +420,7 @@ function SetupPanel({
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [productId, setProductId] = useState('');
   const [policyId, setPolicyId] = useState('');
-  const [holderName, setHolderName] = useState('Demo User');
+  const [holderName, setHolderName] = useState('演示客户');
   const [holderEmail, setHolderEmail] = useState('demo@example.com');
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
@@ -433,7 +434,7 @@ function SetupPanel({
         const first = data[0];
         if (first) setProductId(first.id);
       })
-      .catch(() => setIssueError('Failed to load products.'));
+      .catch(() => setIssueError('加载应用失败。'));
   }, [showIssue]);
 
   useEffect(() => {
@@ -445,7 +446,7 @@ function SetupPanel({
         const twoSeat = data.find((p) => p.maxSeats === 2);
         setPolicyId((twoSeat ?? data[0])?.id ?? '');
       })
-      .catch(() => setIssueError('Failed to load policies.'));
+      .catch(() => setIssueError('加载策略失败。'));
   }, [productId]);
 
   async function handleIssue() {
@@ -461,7 +462,7 @@ function SetupPanel({
       setToken(response.token);
       onIssued();
     } catch (err) {
-      setIssueError(err instanceof ApiError ? err.message : 'Failed to issue demo license.');
+      setIssueError(err instanceof ApiError ? err.message : '创建演示授权失败。');
     } finally {
       setIssuing(false);
     }
@@ -469,9 +470,9 @@ function SetupPanel({
 
   return (
     <div className="space-y-4 rounded-lg border border-gray-800 bg-gray-900 p-4">
-      <h2 className="text-sm font-semibold text-gray-200">Setup</h2>
+      <h2 className="text-sm font-semibold text-gray-200">演示配置</h2>
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField id="demo-validation-key" label="Validation API key" hint="gm_val_… — pasted by the operator">
+        <FormField id="demo-validation-key" label="校验 API 密钥" hint="由管理员粘贴 gm_val_… 密钥">
           <input
             id="demo-validation-key"
             className={`${inputClasses} font-mono`}
@@ -480,16 +481,16 @@ function SetupPanel({
             placeholder="gm_val_..."
           />
         </FormField>
-        <FormField id="demo-public-key" label="Ed25519 public key (base64)" hint="Used only for the in-browser offline check">
+        <FormField id="demo-public-key" label="Ed25519 公钥（Base64）" hint="仅用于浏览器离线验签">
           <input
             id="demo-public-key"
             className={`${inputClasses} font-mono`}
             value={publicKeyBase64}
             onChange={(e) => setPublicKeyBase64(e.target.value)}
-            placeholder="base64-encoded 32-byte public key"
+            placeholder="32 字节公钥的 Base64 编码"
           />
         </FormField>
-        <FormField id="demo-key-id" label="License key ID">
+        <FormField id="demo-key-id" label="授权编号">
           <input
             id="demo-key-id"
             className={`${inputClasses} font-mono`}
@@ -498,7 +499,7 @@ function SetupPanel({
             placeholder="K7P2-9QXM-4T1Y"
           />
         </FormField>
-        <FormField id="demo-token" label="Signed token">
+        <FormField id="demo-token" label="签名证书">
           <textarea
             id="demo-token"
             rows={2}
@@ -511,7 +512,7 @@ function SetupPanel({
       </div>
 
       <button type="button" className={secondaryButtonClasses} onClick={() => setShowIssue((v) => !v)}>
-        {showIssue ? 'Hide issue form' : 'Or issue a demo license now'}
+        {showIssue ? '收起创建表单' : '创建 v1 演示授权'}
       </button>
 
       {showIssue && (
@@ -521,7 +522,7 @@ function SetupPanel({
               <Alert kind="error">{issueError}</Alert>
             </div>
           )}
-          <FormField id="demo-issue-product" label="Product">
+          <FormField id="demo-issue-product" label="应用">
             <select id="demo-issue-product" className={inputClasses} value={productId} onChange={(e) => setProductId(e.target.value)}>
               {products.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -530,19 +531,19 @@ function SetupPanel({
               ))}
             </select>
           </FormField>
-          <FormField id="demo-issue-policy" label="Policy" hint="A 2-seat policy is pre-selected when available">
+          <FormField id="demo-issue-policy" label="权益策略" hint="优先选择允许两台设备的策略">
             <select id="demo-issue-policy" className={inputClasses} value={policyId} onChange={(e) => setPolicyId(e.target.value)}>
               {policies.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} ({p.maxSeats} seats)
+                  {p.name}（{p.maxSeats} 台设备）
                 </option>
               ))}
             </select>
           </FormField>
-          <FormField id="demo-issue-holder-name" label="Holder name">
+          <FormField id="demo-issue-holder-name" label="客户名称">
             <input id="demo-issue-holder-name" className={inputClasses} value={holderName} onChange={(e) => setHolderName(e.target.value)} />
           </FormField>
-          <FormField id="demo-issue-holder-email" label="Holder email">
+          <FormField id="demo-issue-holder-email" label="客户邮箱">
             <input
               id="demo-issue-holder-email"
               type="email"
@@ -553,7 +554,7 @@ function SetupPanel({
           </FormField>
           <div className="sm:col-span-2">
             <button type="button" className={buttonClasses} disabled={issuing || !policyId} onClick={() => void handleIssue()}>
-              {issuing ? 'Issuing…' : 'Issue 2-seat demo license'}
+              {issuing ? '创建中…' : '创建 v1 演示授权'}
             </button>
           </div>
         </div>
