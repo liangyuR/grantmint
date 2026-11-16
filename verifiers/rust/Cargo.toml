@@ -6,6 +6,7 @@ license = "Apache-2.0"
 description = "Device-bound Grantmint v2 offline verification"
 
 [dependencies]
+grantmint-license-protocol = { path = "../../crates/license-protocol" }
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 ed25519-dalek = "2"

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ProductProvider, useProducts } from '../products/ProductContext';
 import Alert from './Alert';
@@ -6,9 +7,8 @@ import { useAuth } from '../auth/AuthContext';
 
 const NAV_ITEMS = [
   { to: '/products', label: '应用管理' },
-  { to: '/policies', label: '策略管理' },
   { to: '/licenses', label: '授权管理' },
-  { to: '/demo', label: 'v1 演示' },
+  { to: '/audit', label: '操作审计' },
 ];
 
 function navLinkClasses({ isActive }: { isActive: boolean }): string {
@@ -25,6 +25,7 @@ export default function Shell() {
 
 function ProductShell() {
   const { admin, logout } = useAuth();
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const { products, product, loading, error, selectProduct, refreshProducts } = useProducts();
   const navigate = useNavigate();
   const location = useLocation();
@@ -57,10 +58,11 @@ function ProductShell() {
           ))}
         </ul>
         <div className="p-3 border-t border-gray-800 space-y-2">
+          {logoutError && <Alert kind="error">{logoutError}</Alert>}
           {admin && <p className="truncate px-1 text-xs text-gray-400">当前账号：{admin.username}</p>}
           <button
             type="button"
-            onClick={() => void logout()}
+            onClick={() => void logout().catch(() => setLogoutError('退出失败，请检查网络后重试。'))}
             className="w-full rounded-md border border-gray-700 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
             退出登录
@@ -80,7 +82,7 @@ function ProductShell() {
           </div>
           {product && <p className="break-all text-xs text-gray-400">应用 ID： <span className="font-mono">{product.id}</span></p>}
           {error && <Alert kind="error">{error} <button type="button" className="underline" onClick={() => void refreshProducts()}>重试</button></Alert>}
-          {!loading && !error && products.length === 0 && <p className="text-sm text-gray-400">请先创建应用，再管理其策略和授权。</p>}
+          {!loading && !error && products.length === 0 && <p className="text-sm text-gray-400">请先创建应用，再管理其授权。</p>}
         </div>
         <div key={product?.id ?? 'no-product'}><Outlet /></div>
       </main>

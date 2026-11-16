@@ -1,7 +1,6 @@
 const STATUS_STYLES: Record<string, string> = {
   active: 'bg-emerald-950 text-emerald-300 ring-1 ring-emerald-800',
   created: 'bg-sky-950 text-sky-300 ring-1 ring-sky-800',
-  suspended: 'bg-amber-950 text-amber-300 ring-1 ring-amber-800',
   expired: 'bg-gray-800 text-gray-300 ring-1 ring-gray-700',
   revoked: 'bg-red-950 text-red-300 ring-1 ring-red-800',
 };
@@ -9,7 +8,7 @@ const STATUS_STYLES: Record<string, string> = {
 const DEFAULT_STYLE = 'bg-gray-800 text-gray-300 ring-1 ring-gray-700';
 
 export const STATUS_LABELS: Record<string, string> = {
-  active: '有效', created: '待激活', suspended: '已暂停', expired: '已到期', revoked: '已撤销', deactivated: '已解绑',
+  active: '有效', created: '待激活', expired: '已到期', revoked: '已撤销',
 };
 
 /**

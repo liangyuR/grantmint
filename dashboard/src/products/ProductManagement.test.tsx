@@ -1,159 +1,124 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { Link, MemoryRouter } from 'react-router-dom';
 import App from '../App';
-import { api } from '../api/client';
-import type { LicenseDetail, Policy, Product } from '../api/types';
-
-const products: Product[] = ['alpha', 'beta'].map((id) => ({
-  id, slug: id, name: `Product ${id}`, description: null, createdAt: '', updatedAt: '',
-}));
-const policy = (productId: string): Policy => ({
-  id: `${productId}-policy`, productId, code: `${productId}-annual`, name: `${productId} annual`,
-  activationType: 'node_locked', maxSeats: 1, durationDays: 30, gracePeriodDays: 0,
-  trial: false, heartbeatIntervalSeconds: 86400, constraints: {}, entitlements: {}, createdAt: '', updatedAt: '',
-});
-
-function mockReads(overrides: (path: string) => unknown = () => undefined) {
+import { api, setCsrfToken } from '../api/client';
+import type { LicenseDetail, Product } from '../api/types';
+const products: Product[] = ['alpha', 'beta'].map((id) => ({ id, slug: id, name: `应用${id}`, description: '', signingKeyId: `key-${id}`, archivedAt: null, createdAt: '' }));
+const detail: LicenseDetail = { id: 'license-alpha', keyId: 'KEY-ALPHA', applicationId: 'alpha', applicationName: '应用alpha', customer: { name: '甲客户', email: 'a@example.invalid' }, expiresAt: '2099-11-30T16:00:00Z', status: 'active', revision: 2, bindingVersion: 1, signedToken: 'certificate', devicePublicKey: 'public-key', fingerprintHash: 'hash', fingerprintVersion: 1, entitlements: {}, renewals: [], deliveryStatus: 'pending', createdAt: '', revokedAt: null };
+function mockReads(getDetail = () => detail, includeList = false) {
   vi.spyOn(api, 'get').mockImplementation(async <T,>(path: string): Promise<T> => {
-    const override = overrides(path);
-    if (override !== undefined) return await override as T;
-    if (path === '/admin/products') return products as T;
-    if (path.startsWith('/admin/licenses?')) return { items: [], page: 0, size: 20, total: 0 } as T;
-    for (const product of products) {
-      if (path === `/admin/products/${product.id}/policies`) return [policy(product.id)] as T;
-    }
+    if (path === '/admin/auth/me') return { username: 'admin', csrfToken: 'csrf' } as T;
+    if (path === '/admin/v2/applications') return products as T;
+    if (path === '/admin/v2/licenses/license-alpha') return getDetail() as T;
+    if (path.startsWith('/admin/v2/licenses?')) return { content: includeList ? [getDetail()] : [], totalElements: includeList ? 1 : 0, totalPages: includeList ? 1 : 0, number: 0, size: 50 } as T;
     throw new Error(`Unexpected read: ${path}`);
   });
 }
-
-function open(path: string) {
-  render(<MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-    <Link to="/licenses/ALPHA-LICENSE">Open saved license link</Link>
-    <App />
-  </MemoryRouter>);
+function open() {
+  render(<MemoryRouter initialEntries={['/licenses']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Link to="/licenses/license-alpha">打开已有授权</Link><App /></MemoryRouter>);
   return userEvent.setup();
 }
-
-afterEach(() => {
-  cleanup();
-  vi.restoreAllMocks();
+async function ready() { await waitFor(() => expect((screen.getByLabelText('当前应用') as HTMLSelectElement).disabled).toBe(false)); }
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); setCsrfToken(null); });
+it('切换应用 → 清除未提交表单且其他应用详情不暴露', async () => {
+  mockReads(); const user = open(); await ready();
+  await user.click(screen.getByRole('button', { name: '创建授权' }));
+  await user.type(screen.getByLabelText('客户名称'), '未提交甲客户');
+  await user.selectOptions(screen.getByLabelText('当前应用'), 'beta');
+  expect(screen.queryByDisplayValue('未提交甲客户')).toBeNull();
+  await user.click(screen.getByRole('link', { name: '打开已有授权' }));
+  await screen.findByText(/不属于当前应用/);
+  expect(screen.queryByText('甲客户')).toBeNull();
+  expect(screen.queryByRole('button', { name: '续期' })).toBeNull();
+});
+it('创建授权 → 直接提交当前应用合同与权益，秘密仅本次展示', async () => {
+  mockReads(); const post = vi.spyOn(api, 'post').mockResolvedValue({ ...detail, licenseId: detail.id, activationSecret: 'one-time-secret' });
+  const user = open(); await ready(); await user.selectOptions(screen.getByLabelText('当前应用'), 'beta');
+  await user.click(screen.getByRole('button', { name: '创建授权' }));
+  await user.type(screen.getByLabelText('客户名称'), '乙客户'); await user.type(screen.getByLabelText('客户邮箱'), 'b@example.invalid');
+  fireEvent.submit(screen.getByLabelText('客户名称').closest('form')!); expect(post).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('停用日期（北京时间）'), { target: { value: '2099-12-01' } });
+  fireEvent.change(screen.getByLabelText('权益（JSON）'), { target: { value: '{"inspect":true,"limit":4}' } });
+  await user.click(screen.getByRole('button', { name: '确认创建' })); await screen.findByDisplayValue('one-time-secret');
+  expect(post).toHaveBeenCalledWith('/admin/v2/licenses', { applicationId: 'beta', customer: { name: '乙客户', email: 'b@example.invalid' }, expiresAt: '2099-11-30T16:00:00.000Z', entitlements: { inspect: true, limit: 4 } });
+  expect(JSON.stringify(localStorage)).not.toContain('one-time-secret');
+  await user.click(screen.getByRole('button', { name: '关闭创建' })); await user.click(screen.getByRole('button', { name: '创建授权' })); expect(screen.queryByDisplayValue('one-time-secret')).toBeNull();
+});
+it('续期响应丢失 → 同内容重试复用幂等键和修订，不提前确认设备', async () => {
+  let current = detail; mockReads(() => current);
+  const post = vi.spyOn(api, 'post').mockRejectedValueOnce(new Error('network')).mockImplementationOnce(async () => { current = { ...detail, revision: 3, expiresAt: '2100-11-30T16:00:00Z' }; return current; });
+  const user = open(); await ready(); await user.click(screen.getByRole('link', { name: '打开已有授权' }));
+  await user.click(await screen.findByRole('button', { name: '续期' }));
+  fireEvent.change(screen.getByLabelText('新的停用日期（北京时间）'), { target: { value: '2099-11-01' } });
+  await user.type(screen.getByLabelText('续期原因'), '合同续约');
+  await user.click(screen.getByRole('button', { name: '确认续期' })); expect(post).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('新的停用日期（北京时间）'), { target: { value: '2100-12-01' } });
+  await user.click(screen.getByRole('button', { name: '确认续期' })); await screen.findByText(/同一内容重试/);
+  await user.click(screen.getByRole('button', { name: '确认续期' }));
+  await waitFor(() => expect(screen.queryByRole('form', { name: '续期授权' })).toBeNull());
+  expect(post.mock.calls[0]).toEqual(post.mock.calls[1]);
+  expect(post.mock.calls[0]![1]).toEqual({ expectedRevision: 2, newExpiresAt: '2100-11-30T16:00:00.000Z', reason: '合同续约', idempotencyKey: expect.any(String) });
+  expect(await screen.findByText('待领取 / 尚未确认')).toBeTruthy(); expect(screen.queryByText('设备已确认')).toBeNull();
+});
+it('会话恢复 → 写请求使用me的CSRF且退出使页面失去授权', async () => {
+  const fetchMock = vi.fn<(path: string, init?: RequestInit) => Promise<Response>>(async (path) => {
+    if (path === '/admin/auth/me') return new Response(JSON.stringify({ username: '管理员', csrfToken: 'actual-csrf' }));
+    if (path === '/admin/v2/applications') return new Response(JSON.stringify(products));
+    if (path.startsWith('/admin/v2/licenses?')) return new Response(JSON.stringify({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 50 }));
+    if (path === '/admin/auth/logout') return new Response(null, { status: 204 });
+    throw new Error(path);
+  });
+  vi.stubGlobal('fetch', fetchMock); const user = open(); await ready();
+  await user.click(screen.getByRole('button', { name: '退出登录' })); await screen.findByRole('button', { name: '登录' });
+  const logout = fetchMock.mock.calls.find(([path]) => path === '/admin/auth/logout')?.[1];
+  expect(new Headers(logout?.headers).get('X-XSRF-TOKEN')).toBe('actual-csrf');
+  expect(logout?.credentials).toBe('include');
+  expect(screen.queryByLabelText('当前应用')).toBeNull();
 });
 
-describe('Product management boundaries', () => {
-  it('switching products clears an unfinished policy form and ignores the previous product response', async () => {
-    let finishAlpha!: (policies: Policy[]) => void;
-    const alphaResponse = new Promise<Policy[]>((resolve) => { finishAlpha = resolve; });
-    mockReads((path) => path === '/admin/products/alpha/policies' ? alphaResponse : undefined);
-    const user = open('/policies');
-    await waitFor(() => expect((screen.getByLabelText('当前应用') as HTMLSelectElement).disabled).toBe(false));
-    await user.click(await screen.findByRole('button', { name: '新建策略' }));
-    await user.type(screen.getByLabelText('名称'), 'Unfinished alpha policy');
+it('会话检查未完成 → 登录表单不可提交，避免迟到401覆盖新会话', async () => {
+  let finish!: (response: Response) => void;
+  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
+  render(<MemoryRouter initialEntries={['/login']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><App /></MemoryRouter>);
+  expect(screen.queryByLabelText('密码')).toBeNull();
+  finish(new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }));
+  expect(await screen.findByLabelText('密码')).toBeTruthy();
+});
 
-    await user.selectOptions(screen.getByLabelText('当前应用'), 'beta');
-    await screen.findByText('beta annual');
-    await act(async () => { finishAlpha([policy('alpha')]); });
-
-    expect(screen.queryByDisplayValue('Unfinished alpha policy')).toBeNull();
-    expect(screen.queryByRole('button', { name: '创建策略' })).toBeNull();
-    expect(screen.queryByText('alpha annual')).toBeNull();
-    expect(screen.getByText('beta annual')).toBeTruthy();
+it.each(['续期', '撤销'] as const)('详情%s成功 → 关闭详情后列表同步修订和交付状态', async (operation) => {
+  let current: LicenseDetail = { ...detail, deliveryStatus: 'confirmed' };
+  mockReads(() => current, true);
+  vi.spyOn(api, 'post').mockImplementation(async () => {
+    current = operation === '续期'
+      ? { ...current, revision: 3, expiresAt: '2100-11-30T16:00:00Z', deliveryStatus: 'pending' }
+      : { ...current, status: 'revoked', revokedAt: '2026-01-01T00:00:00Z' };
+    return current;
   });
-
-  it('a saved license link for another product does not expose its details or mutation controls', async () => {
-    const otherLicense = {
-      id: 'license-a', keyId: 'ALPHA-LICENSE', productId: 'alpha', holderName: 'Alpha customer',
-      status: 'active', activations: [], entitlements: {}, constraints: {}, signedToken: 'secret-token',
-    } as unknown as LicenseDetail;
-    mockReads((path) => path === '/admin/licenses/ALPHA-LICENSE' ? otherLicense : undefined);
-    const user = open('/licenses');
-    await waitFor(() => expect((screen.getByLabelText('当前应用') as HTMLSelectElement).disabled).toBe(false));
-    await user.selectOptions(screen.getByLabelText('当前应用'), 'beta');
-    await user.click(screen.getByRole('link', { name: 'Open saved license link' }));
-
-    await screen.findByText(/不属于当前应用/);
-    expect(screen.queryByText('Alpha customer')).toBeNull();
-    expect(screen.queryByDisplayValue('secret-token')).toBeNull();
-    expect(screen.queryByRole('button', { name: /暂停|恢复|撤销/ })).toBeNull();
-  });
-
-  it('issuing uses the selected product policy and converts its stop date from Beijing midnight', async () => {
-    mockReads();
-    const post = vi.spyOn(api, 'post').mockResolvedValue({ keyId: 'BETA-LICENSE', token: 'signed', status: 'active', expiresAt: '2026-11-30T16:00:00Z' });
-    const user = open('/licenses');
-    await waitFor(() => expect((screen.getByLabelText('当前应用') as HTMLSelectElement).disabled).toBe(false));
-    await user.selectOptions(screen.getByLabelText('当前应用'), 'beta');
-    await user.click(screen.getByRole('button', { name: '创建授权' }));
-    await screen.findByRole('option', { name: 'beta annual（1 台设备）' });
-    await user.selectOptions(screen.getByLabelText('授权模式'), 'legacy');
-    expect(screen.queryByRole('option', { name: 'alpha annual（1 台设备）' })).toBeNull();
-    await user.type(screen.getByLabelText('客户名称'), 'Beta customer');
-    const issueForm = within(screen.getByLabelText('客户名称').closest('form')!);
-    await user.type(issueForm.getByLabelText('客户邮箱'), 'beta@example.invalid');
-    fireEvent.change(screen.getByLabelText('停用日期（北京时间）'), { target: { value: '2026-12-01' } });
-    await user.click(screen.getByRole('button', { name: '创建授权' }));
-
-    await screen.findByDisplayValue('BETA-LICENSE');
-    expect(post).toHaveBeenCalledWith('/admin/licenses', {
-      productId: 'beta', policyId: 'beta-policy', holder: { name: 'Beta customer', email: 'beta@example.invalid' },
-      expiresAt: '2026-11-30T16:00:00.000Z',
-    });
-  });
-  it('默认离线授权要求未来停用日，创建后只展示本次激活秘密且关闭后清除', async () => {
-    mockReads();
-    const post = vi.spyOn(api, 'post').mockResolvedValue({
-      licenseId: 'license-v2', keyId: 'OFFLINE-KEY', activationSecret: 'one-time-sensitive-secret',
-      mode: 'offline_device_v2', status: 'created', expiresAt: '2099-11-30T16:00:00Z',
-    });
-    const user = open('/licenses');
-    await waitFor(() => expect((screen.getByLabelText('当前应用') as HTMLSelectElement).disabled).toBe(false));
-    await user.click(screen.getByRole('button', { name: '创建授权' }));
-    await screen.findByRole('option', { name: 'alpha annual（1 台设备）' });
-    await user.type(screen.getByLabelText('客户名称'), '离线客户');
-    const form = screen.getByLabelText('客户名称').closest('form')!;
-    await user.type(within(form).getByLabelText('客户邮箱'), 'offline@example.invalid');
-    fireEvent.submit(form);
-    expect(post).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText('停用日期（北京时间）'), { target: { value: '2099-12-01' } });
-    await user.click(screen.getByRole('button', { name: '创建授权' }));
-    await screen.findByDisplayValue('one-time-sensitive-secret');
-    expect(post).toHaveBeenCalledWith('/admin/v2/licenses', {
-      productId: 'alpha', policyId: 'alpha-policy', holder: { name: '离线客户', email: 'offline@example.invalid' },
-      expiresAt: '2099-11-30T16:00:00.000Z',
-    });
-    expect(screen.queryByLabelText('签名证书')).toBeNull();
-    expect(JSON.stringify(localStorage)).not.toContain('one-time-sensitive-secret');
-    await user.click(screen.getByRole('button', { name: '关闭' }));
-    await user.click(screen.getByRole('button', { name: '创建授权' }));
-    expect(screen.queryByDisplayValue('one-time-sensitive-secret')).toBeNull();
-    expect(screen.queryByLabelText('一次性激活秘密')).toBeNull();
-  });
-
-  it.each([false, true])('v2 详情在绑定状态 %s 下隐藏旧解绑入口，仅激活后展示证书', async (bound) => {
-    const license = {
-      id: 'license-v2', keyId: 'ALPHA-LICENSE', productId: 'alpha', holderName: '离线客户',
-      status: bound ? 'active' : 'created', mode: 'offline_device_v2', revision: 1, bindingVersion: bound ? 1 : 0,
-      issuedAt: '2026-01-01T00:00:00Z', expiresAt: '2099-12-01T00:00:00Z',
-      devicePublicKey: bound ? 'device-public-key' : null, fingerprintHash: bound ? 'fingerprint-hash' : null,
-      fingerprintVersion: bound ? 1 : null, signedToken: bound ? 'signed-device-certificate' : null,
-      activations: [{ id: 'activation-1', status: 'active', fingerprint: 'legacy-device' }],
-    } as unknown as LicenseDetail;
-    mockReads((path) => path === '/admin/licenses/ALPHA-LICENSE' ? license : undefined);
-    const user = open('/licenses');
-    await waitFor(() => expect((screen.getByLabelText('当前应用') as HTMLSelectElement).disabled).toBe(false));
-    await user.click(screen.getByRole('link', { name: 'Open saved license link' }));
-    await screen.findByText('离线客户', { exact: false });
-    expect(screen.queryByRole('button', { name: /强制解绑/ })).toBeNull();
-    expect(screen.queryByLabelText('一次性激活秘密')).toBeNull();
-    if (bound) {
-      expect(screen.getByDisplayValue('signed-device-certificate')).toBeTruthy();
-      expect(screen.getByText('device-public-key')).toBeTruthy();
-    } else {
-      expect(within(screen.getByRole('dialog')).queryByRole('textbox')).toBeNull();
-      expect(screen.getByText(/尚未签发设备证书/)).toBeTruthy();
-    }
-  });
-
+  const user = open(); await ready();
+  const table = within(screen.getByRole('table'));
+  expect(await table.findByText('设备已确认')).toBeTruthy();
+  await user.click(table.getByRole('link', { name: 'KEY-ALPHA' }));
+  await user.click(await screen.findByRole('button', { name: operation === '续期' ? '续期' : '撤销授权' }));
+  if (operation === '续期') {
+    fireEvent.change(screen.getByLabelText('新的停用日期（北京时间）'), { target: { value: '2100-12-01' } });
+    await user.type(screen.getByLabelText('续期原因'), '合同续约');
+    await user.click(screen.getByRole('button', { name: '确认续期' }));
+    await waitFor(() => expect(screen.queryByRole('form', { name: '续期授权' })).toBeNull());
+  } else {
+    await user.type(screen.getByLabelText('撤销原因'), '合同终止');
+    await user.click(screen.getByRole('button', { name: '确认撤销' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: '确认撤销' })).toBeNull());
+  }
+  await user.click(screen.getByRole('button', { name: '关闭详情' }));
+  if (operation === '续期') {
+    expect(await table.findByText('第 3 版')).toBeTruthy();
+    expect(table.getByText('待领取 / 尚未确认')).toBeTruthy();
+    expect(table.queryByText('设备已确认')).toBeNull();
+  } else {
+    expect(await table.findByText('已撤销')).toBeTruthy();
+    expect(table.queryByText('有效')).toBeNull();
+  }
 });

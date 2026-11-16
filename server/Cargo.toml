@@ -1,0 +1,29 @@
+[package]
+name = "grantmint-server"
+version = "0.1.0"
+default-run = "grantmint-server"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "json", "migrate", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.8"
+sha2 = "0.10"
+base64 = "0.22"
+ed25519-dalek = "2"
+argon2 = "0.5"
+subtle = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+grantmint-license-protocol = { path = "../crates/license-protocol" }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tempfile = "3"

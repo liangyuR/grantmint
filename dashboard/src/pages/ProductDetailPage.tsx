@@ -10,7 +10,7 @@ export default function ProductDetailPage() {
   const { productId } = useParams<{ productId: string }>();
   const { products, loading, selectProduct } = useProducts();
   const product = products.find((item) => item.id === productId);
-  const { data: keys, error, reload } = useResource<SigningKey[]>(product ? `/admin/products/${product.id}/signing-keys` : null);
+  const { data: keys, error, reload } = useResource<SigningKey[]>(product ? `/admin/v2/applications/${product.id}/keys` : null);
 
   useEffect(() => {
     if (product) selectProduct(product.id);
@@ -23,7 +23,6 @@ export default function ProductDetailPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">{product.name}</h1>
         <div className="flex gap-2">
-          <Link className={secondaryButtonClasses} to="/policies">管理策略</Link>
           <Link className={secondaryButtonClasses} to="/licenses">管理授权</Link>
         </div>
       </div>
@@ -34,15 +33,14 @@ export default function ProductDetailPage() {
       </dl>
       <section className="space-y-3" aria-labelledby="signing-keys-heading">
         <h2 id="signing-keys-heading" className="font-semibold">签名公钥</h2>
-        <p className="text-sm text-gray-400">下方展示已注册公钥的状态；启用状态不代表当前签发密钥。私钥由部署人员配置，不通过页面上传。</p>
+        <p className="text-sm text-gray-400">下方为部署配置的公钥；轮换前须先让客户端信任新公钥。私钥只由部署人员配置，不通过页面上传。</p>
         {error && <Alert kind="error">{error} <button className="underline" type="button" onClick={reload}>重试</button></Alert>}
         {!keys && !error && <p className="text-gray-400">正在加载签名公钥…</p>}
         {keys?.length === 0 && <Alert kind="info">尚未注册签名密钥。签发该应用的授权前，请先配置签名密钥。</Alert>}
         {keys?.map((key) => (
           <div key={key.keyId} className="space-y-2 rounded-lg border border-gray-800 bg-gray-900 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-mono">{key.keyId}</span><span className="text-sm text-gray-300">{key.algorithm} · {key.status === 'active' ? '启用' : key.status === 'revoked' ? '已撤销' : key.status === 'retired' ? '已停用' : key.status}</span></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-mono">{key.keyId}</span><span className="text-sm text-gray-300">Ed25519 · {key.active ? '当前签发密钥' : '保留公钥'}</span></div>
             <p className="break-all font-mono text-xs text-gray-300">{key.publicKey}</p>
-            <p className="text-xs text-gray-400">注册时间：{new Date(key.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hourCycle: 'h23' })}</p>
           </div>
         ))}
       </section>

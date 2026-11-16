@@ -1,210 +1,94 @@
-# Grantmint CI — the guard rails that otherwise only run on a local `./mvnw verify`:
-# unit tests, jqwik property tests (the correctness contract for issuance/signing/
-# verification/seats), Testcontainers integration tests against real PostgreSQL 16,
-# the ArchUnit boundary/layering rules (crypto core stays Spring-free), Spotless
-# formatting, the Locale.ROOT checkstyle lint, and the GraalVM native-image build
-# with a boot smoke against real Postgres. See docs/deployment/CI_CD.md.
-#
-# The dashboard job runs the operator console's own gates: ESLint, the vitest suite (which pins
-# the in-browser demo verifier to the same cross-verifier golden vector as the Java/Swift/Go
-# suites), and the tsc + vite production build. The verifiers job runs the Go and Swift halves
-# of that parity harness, and the verify job opens with scripts/check-fixture-parity.py so a
-# drifted copy of the golden vector fails fast (GRANTMINT-155).
-#
-# Deliberately absent for now:
-# - multi-arch (arm64) native builds — those belong to the release workflow
-#   (GRANTMINT-112); CI proves the image builds and boots on linux/amd64.
 name: ci
-
 on:
   push:
     branches: [main]
   pull_request:
-
+permissions:
+  contents: read
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
-  rust-offline:
-    name: Rust offline verifier (${{ matrix.os }})
+  rust-client:
+    name: Rust protocol and offline SDK (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: verifiers/rust
     steps:
       - uses: actions/checkout@v4
       - name: Set up Rust
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
-      - run: cargo +stable fmt --check
-      - run: cargo +stable test --locked
-      - run: cargo +stable clippy --locked --all-targets -- -D warnings
-
-  verify:
-    name: mvn verify (tests + guards)
-    runs-on: ubuntu-latest # Docker is available for Testcontainers
-    timeout-minutes: 30
+        run: rustup toolchain install 1.91.1 --profile minimal --component rustfmt --component clippy
+      - run: cargo +1.91.1 fmt --manifest-path crates/license-protocol/Cargo.toml --check
+      - run: cargo +1.91.1 test --manifest-path crates/license-protocol/Cargo.toml --locked
+      - run: cargo +1.91.1 clippy --manifest-path crates/license-protocol/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo +1.91.1 fmt --manifest-path verifiers/rust/Cargo.toml --check
+      - run: cargo +1.91.1 test --manifest-path verifiers/rust/Cargo.toml --locked
+      - run: cargo +1.91.1 clippy --manifest-path verifiers/rust/Cargo.toml --locked --all-targets -- -D warnings
+  rust-server:
+    name: Rust server and PostgreSQL contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: grantmint_test
+          POSTGRES_USER: grantmint
+          POSTGRES_PASSWORD: grantmint-test-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U grantmint -d grantmint_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://grantmint:grantmint-test-only@localhost:5432/grantmint_test
     steps:
       - uses: actions/checkout@v4
-
-      # The pinned cross-verifier vector is duplicated as literals in five test
-      # suites (unavoidable across Java/Go/Swift/TS); grantmint-core's
-      # CrossVerifierFixtureTest is the source of truth. Fail fast if any copy
-      # drifted (GRANTMINT-155) — stdlib Python, no setup needed.
-      - name: Cross-verifier fixture drift guard
-        run: python3 scripts/check-fixture-parity.py
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-
-      # One command runs everything the build binds into verify: Surefire (unit +
-      # jqwik + ArchUnit), the Postgres Testcontainers ITs, spotless:check, and the
-      # checkstyle Locale.ROOT lint. Docker on hosted runners rejects the bundled
-      # docker-java default API 1.32; select a supported API for Testcontainers.
-      - name: Build and verify
-        env:
-          JAVA_TOOL_OPTIONS: -Dapi.version=1.44
-        run: ./mvnw -B -ntp verify
-
-      - name: Surefire reports on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: surefire-reports
-          path: "**/target/surefire-reports/"
-          retention-days: 7
-
+      - name: Set up Rust
+        run: rustup toolchain install 1.91.1 --profile minimal --component rustfmt --component clippy
+      - run: cargo +1.91.1 fmt --manifest-path server/Cargo.toml --check
+      - run: cargo +1.91.1 test --manifest-path server/Cargo.toml --locked
+      - run: cargo +1.91.1 clippy --manifest-path server/Cargo.toml --locked --all-targets -- -D warnings
   dashboard:
-    name: dashboard lint + test + build
+    name: Chinese Web lint, tests and build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: dashboard
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node 22
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "22" # WebCrypto Ed25519 — the vitest suite verifies the golden vector with it
+          node-version: "22"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test (demo verifier pinned to the cross-verifier vector)
-        run: npm test
-
-      - name: Build (tsc + vite)
-        run: npm run build
-
-  # The Go and Swift halves of the cross-verifier parity harness (GRANTMINT-155:
-  # previously these suites only ran locally — the fixture guard above is only
-  # meaningful if the suites it protects are CI-gated too). macOS runner because
-  # the Swift verifier is Apple CryptoKit; Go runs anywhere.
-  verifiers:
-    name: Go + Swift verifier parity suites
-    runs-on: macos-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: verifiers/go/go.mod
-          cache: false # stdlib-only module, no go.sum to key a cache on
-
-      - name: Go verifier tests
-        working-directory: verifiers/go
-        run: |
-          test -z "$(gofmt -l .)" || { gofmt -l .; echo 'gofmt needed'; exit 1; }
-          go vet ./...
-          go test ./...
-
-      - name: Swift verifier tests
-        working-directory: verifiers/swift
-        run: swift test
-
-  # The slow, RAM-heavy tail: prove the single binary still builds under the AOT
-  # closed-world model and boots against a real Postgres. If only this job is red,
-  # it's almost always a missing reachability hint, not a logic bug — see
-  # grantmint-server/src/main/resources/META-INF/native-image/dev.hg.grantmint/
-  # grantmint-server-hints/README.md and docs/operations/TROUBLESHOOTING.md.
-  native-image:
-    name: native-image build + boot smoke
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+  docker:
+    name: Docker deployment smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: grantmint
-          POSTGRES_USER: grantmint
-          POSTGRES_PASSWORD: grantmint
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U grantmint -d grantmint"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
+    timeout-minutes: 25
+    env:
+      GRANTMINT_DB_PASSWORD: ci-only-database-password
+      GRANTMINT_ADMIN_PASSWORD: ci-only-admin-password
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up GraalVM CE 21
-        uses: graalvm/setup-graalvm@v1
-        with:
-          distribution: graalvm-community
-          java-version: "21"
-          cache: maven
-
-      # native:compile must run on grantmint-server alone — with -am the goal also
-      # fires on the aggregator POM and dies with "Image classpath is empty" — so
-      # grantmint-core (and the parent POM) must be installed first.
-      - name: Install grantmint-core
-        run: ./mvnw -B -ntp -DskipTests install -pl grantmint-core -am
-
-      - name: Build the native image
-        run: ./mvnw -B -ntp -Pnative -DskipTests -pl grantmint-server native:compile
-
-      # Boot smoke: the binary must come up against real Postgres (Flyway migrates
-      # at boot) and report UP on the loopback-only management port. The full
-      # issue→activate→validate→revoke native cycle lives in scripts/native-smoke.sh
-      # (needs an EMPTY postgres on 5433 — run it locally after AOT-visible changes).
-      - name: Boot the binary and probe health
-        env:
-          GRANTMINT_DB_URL: jdbc:postgresql://localhost:5432/grantmint
-          GRANTMINT_DB_USER: grantmint
-          GRANTMINT_DB_PASSWORD: grantmint
+      - name: Prepare public key registry
+        run: cp config/keys.example.json config/keys.json
+      - name: Build and start isolated stack
+        run: docker compose -p grantmint-ci -f compose.deploy.yml up -d --build --wait
+      - name: Probe Web and private health
         run: |
-          ./grantmint-server/target/grantmint-server &
-          SERVER_PID=$!
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:9090/actuator/health | grep -q '"status":"UP"'; then
-              echo "health is UP"
-              kill "$SERVER_PID"
-              exit 0
-            fi
-            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-              echo "server process exited before becoming healthy"
-              exit 1
-            fi
-            sleep 1
-          done
-          echo "health never reached UP within 30s"
-          kill "$SERVER_PID"
-          exit 1
+          curl -fsS http://127.0.0.1:8180/ | grep -q 'Grantmint'
+          docker compose -p grantmint-ci -f compose.deploy.yml exec -T license-server curl -fsS http://127.0.0.1:8080/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8180/v1/licenses/validate)" = 404
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -p grantmint-ci -f compose.deploy.yml logs --tail 100
+      - name: Stop disposable CI stack
+        if: always()
+        run: docker compose -p grantmint-ci -f compose.deploy.yml down -v

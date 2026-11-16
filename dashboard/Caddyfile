@@ -9,12 +9,12 @@
 		respond "Administrative access is restricted" 403
 	}
 
-	@api path /admin /admin/* /v1 /v1/* /v2 /v2/* /issuance /issuance/* /webhooks /webhooks/*
+	@api path /admin /admin/* /v2 /v2/*
 	handle @api {
-		reverse_proxy grantmint-server:8080
+		reverse_proxy license-server:8080
 	}
 
-	@private path /actuator /actuator/* /metrics /metrics/* /v3 /v3/* /swagger-ui /swagger-ui/* /swagger-ui.html
+	@private path /healthz /actuator /actuator/* /metrics /metrics/* /v1 /v1/* /issuance /issuance/* /webhooks /webhooks/* /v3 /v3/* /swagger-ui /swagger-ui/* /swagger-ui.html
 	handle @private {
 		respond "Not found" 404
 	}

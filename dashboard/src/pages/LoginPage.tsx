@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  if (status === 'checking') return <p className="p-6 text-gray-400">正在检查登录状态…</p>;
+
   if (status === 'authenticated') {
     const redirectTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/products';
     return <Navigate to={redirectTo} replace />;

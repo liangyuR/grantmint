@@ -1,6 +1,6 @@
 # Rust v2 离线校验器
 
-Apache-2.0 客户端库，不依赖服务端 AGPL 模块。支持 `offline_device` v2 证书、设备挑战签名及激活时间回执；v1 证书不能作为设备绑定授权使用。库和 CLI 均不访问网络，激活 HTTP 交互由调用方通过 TLS 完成。
+Apache-2.0 客户端库，不依赖服务端 AGPL 模块。支持 `offline_device` v2 证书、设备挑战签名、激活与续期同步时间回执；v1 证书不能作为设备绑定授权使用。库和 CLI 均不访问网络，激活 HTTP 交互由调用方通过 TLS 完成。
 
 ```sh
 cargo test --locked
@@ -21,7 +21,7 @@ cargo build --locked
 
 `verify` 成功表示证书签名、身份和时间状态检查完成，**不一定允许启动业务**。必须使用 `result.status.allows_new_work()`：只有 VALID/EXPIRING 返回 true，EXPIRED 返回 false。到期后仍返回经过认证的证书信息，便于 UI 展示及续期入口。业务层在每次接收新工件前校验，已开始工件是否允许完成由业务调度器控制。
 
-EXPIRING 在到期前 7 × 86400 秒开始，`now >= exp` 为 EXPIRED。5 分钟墙钟回拨容差不增加有效期，生效时间取墙钟和可信下界较大者。超过容差返回 ClockSuspect；revision 或 binding_version 低于受保护高水位返回 Rollback。
+EXPIRING 在到期前 7 × 86400 秒开始，`now >= exp` 为 EXPIRED。5 分钟墙钟回拨容差不增加有效期，生效时间取墙钟和可信下界较大者。超过容差返回 ClockSuspect；revision 回退、binding_version 变化或相同 revision 对应不同 serial 时返回 Rollback。首期不支持更换绑定。
 
 解析器限制 128 KiB 输入，采用 serde_json 默认递归深度限制，拒绝重复 JSON key、浮点/指数表示、非规范 base64url、缺失必填字段、未知版本/算法和无界期限。证书序号与时间必须处于跨 Java/Rust/TypeScript 安全整数范围。
 
@@ -64,3 +64,27 @@ CLI 的 JSON state 未加密/认证，只提供创建权限及文件替换示例
 测试覆盖产品/授权/设备/指纹隔离、原始字节签名与篡改、精确提醒/到期、版本和时间回退、严格解析及时间回执重放。`tests/java_fixture.rs` 直接引用 Java core 的唯一共享 fixture；Java测试断言其签发输出完全相同，Rust验证该证书及回执并在离线十天后继续使用，到期当刻停止。
 
 测试中的公开 seed 仅用于固定跨语言向量，不能用于部署。这里的校验测试不代表已经实现 Windows/Linux 安全存储、机器指纹采集、可信时间恢复 API、客户端自动弹窗或业务工件门禁。
+
+## 续期与确认
+
+`accept_sync` 必须传入已存在的完整保护状态，不能用于首次激活或丢失状态后的恢复。`SyncClock` 延续旧状态的单调计时；签名回执只能推进可信时间下界，不能降低高水位。旧证书过期不妨碍领取续期证书。调用方必须核对 `allows_new_work()` 后才允许新业务。
+
+同步和确认分别采用 `grantmint.sync.v2` / `grantmint.ack.v2`，挑战在原激活字段后追加目标 serial。保存本次 TLS 请求返回的待完成挑战，核对上下文后使用 `sign_sync_challenge`。`accept_sync` 验证回执 operation、challenge ID、nonce、产品、授权、设备摘要、serial、时间和证书修订。挑战过期或 certificate_changed 时重新请求。
+
+新 token 和 state 必须作为同一事务对象原子保存，再对确认挑战使用 `sign_acknowledgement`。确认必须使用已持久化的 state；保存失败保留旧证书及状态，不发送确认。确认不构成心跳。
+
+推荐单文件 bundle 演示：
+
+```sh
+grantmint-offline accept-activation-bundle device.seed activation.json challenge.json trusted-keys.json PRODUCT_UUID LICENSE_UUID FINGERPRINT_HASH bundle.json
+grantmint-offline sign-sync device.seed sync-challenge.json PRODUCT_UUID LICENSE_UUID FINGERPRINT_HASH
+grantmint-offline accept-sync device.seed sync-response.json sync-challenge.json trusted-keys.json PRODUCT_UUID LICENSE_UUID FINGERPRINT_HASH bundle.json
+grantmint-offline verify-bundle device.seed bundle.json trusted-keys.json PRODUCT_UUID LICENSE_UUID FINGERPRINT_HASH
+grantmint-offline sign-ack device.seed ack-challenge.json PRODUCT_UUID LICENSE_UUID FINGERPRINT_HASH bundle.json
+```
+
+调用方向 `/v2/licenses/sync-challenges` 请求 operation=sync，再把签名提交 `/v2/licenses/sync`。保存成功后请求 operation=ack、已保存 serial 的挑战，把 sign-ack 输出提交 `/v2/licenses/acknowledgements`；提交均带身份和随机幂等键。HTTP/TLS 由调用方实现。
+
+`OfflineBundle` / `save_demo_bundle` 使用同目录临时文件、sync 和 rename，失败清理临时文件；没有加密、跨进程锁或断电后目录元数据持久性保证，生产需 OS 适配。新增状态必填 serial，旧开发版缺少此字段时拒绝加载；不从待验新证书猜值。真实旧状态迁移需独立验证原证书及保护状态，本演示不自动迁移。
+
+新增测试保护过期续期、旧证书回退、回执重放/串用途、serial 冲突、绑定变化、时间回退、未保存证书确认及 bundle 写失败。协议 crate 用 Java 公共 fixture 逐字节验证 Rust 签名输出。

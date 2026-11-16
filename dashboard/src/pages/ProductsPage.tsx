@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useProducts } from '../products/ProductContext';
 import type { FormEvent } from 'react';
 import { api, ApiError } from '../api/client';
-import type { Product } from '../api/types';
+import { useResource } from '../api/useResource';
+import type { Product, SigningKey } from '../api/types';
 import Alert from '../components/Alert';
 import ConfirmDialog from '../components/ConfirmDialog';
 import FormField, { buttonClasses, inputClasses, secondaryButtonClasses } from '../components/FormField';
@@ -12,12 +13,14 @@ interface ProductFormState {
   slug: string;
   name: string;
   description: string;
+  signingKeyId: string;
 }
 
-const EMPTY_FORM: ProductFormState = { slug: '', name: '', description: '' };
+const EMPTY_FORM: ProductFormState = { slug: '', name: '', description: '', signingKeyId: '' };
 
 export default function ProductsPage() {
   const { products, loading, refreshProducts, selectProduct } = useProducts();
+  const { data: keys, error: keyError, reload: reloadKeys } = useResource<SigningKey[]>('/admin/v2/signing-keys');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -36,7 +39,7 @@ export default function ProductsPage() {
 
   function startEdit(product: Product) {
     setEditingId(product.id);
-    setForm({ slug: product.slug, name: product.name, description: product.description ?? '' });
+    setForm({ slug: product.slug, name: product.name, description: product.description ?? '', signingKeyId: product.signingKeyId });
     setShowCreateForm(true);
   }
 
@@ -53,20 +56,23 @@ export default function ProductsPage() {
     setMessage(null);
     try {
       if (editingId) {
-        await api.put(`/admin/products/${editingId}`, {
+        await api.put(`/admin/v2/applications/${editingId}`, {
           name: form.name,
-          description: form.description || null,
+          description: form.description,
+          signingKeyId: form.signingKeyId,
         });
         setMessage(`已更新应用“${form.name}”。`);
       } else {
-        await api.post('/admin/products', {
+        await api.post('/admin/v2/applications', {
           slug: form.slug,
           name: form.name,
-          description: form.description || null,
+          description: form.description,
+          signingKeyId: form.signingKeyId,
         });
         setMessage(`已创建应用“${form.name}”。`);
       }
       cancelForm();
+      reloadKeys();
       await refreshProducts();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存失败。');
@@ -80,12 +86,12 @@ export default function ProductsPage() {
     setDeleting(true);
     setError(null);
     try {
-      await api.delete(`/admin/products/${pendingDelete.id}`);
-      setMessage(`已删除应用“${pendingDelete.name}”。`);
+      await api.post(`/admin/v2/applications/${pendingDelete.id}/archive`);
+      setMessage(`已归档应用“${pendingDelete.name}”。`);
       setPendingDelete(null);
       await refreshProducts();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : '删除失败。');
+      setError(err instanceof ApiError ? err.message : '归档失败。');
     } finally {
       setDeleting(false);
     }
@@ -100,6 +106,7 @@ export default function ProductsPage() {
         </button>
       </div>
 
+      {keyError && <Alert kind="error">{keyError}</Alert>}
       {error && <Alert kind="error">{error}</Alert>}
       {message && <Alert kind="success">{message}</Alert>}
 
@@ -142,6 +149,12 @@ export default function ProductsPage() {
               placeholder="可选"
             />
           </FormField>
+          <FormField id="signing-key" label="签发密钥" hint="仅选择部署管理员配置的公钥标识，页面不接触私钥。">
+            <select id="signing-key" className={inputClasses} required value={form.signingKeyId} onChange={(e) => setForm({ ...form, signingKeyId: e.target.value })}>
+              <option value="">请选择签发密钥</option>
+              {keys?.filter((key) => !key.applicationId || key.applicationId === editingId).map((key) => <option key={key.keyId} value={key.keyId}>{key.keyId}</option>)}
+            </select>
+          </FormField>
           <div className="sm:col-span-3 flex gap-2">
             <button type="submit" disabled={saving} className={buttonClasses}>
               {saving ? '保存中…' : editingId ? '保存修改' : '创建应用'}
@@ -183,7 +196,7 @@ export default function ProductsPage() {
             {products?.map((product) => (
               <tr key={product.id} className="hover:bg-gray-900/60">
                 <td className="px-4 py-2 font-mono text-gray-300">{product.slug}</td>
-                <td className="px-4 py-2 text-gray-100"><Link className="text-indigo-300 underline" to={`/products/${product.id}`} onClick={() => selectProduct(product.id)}>{product.name}</Link></td>
+                <td className="px-4 py-2 text-gray-100"><Link className="text-indigo-300 underline" to={`/products/${product.id}`} onClick={() => selectProduct(product.id)}>{product.name}</Link>{product.archivedAt && <span className="ml-2 text-gray-500">已归档</span>}</td>
                 <td className="px-4 py-2 text-gray-400">{product.description || '—'}</td>
                 <td className="px-4 py-2 text-right">
                   <div className="flex justify-end gap-2">
@@ -198,10 +211,11 @@ export default function ProductsPage() {
                     <button
                       type="button"
                       className="rounded-md border border-red-900 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-red-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                      disabled={!!product.archivedAt}
                       onClick={() => setPendingDelete(product)}
-                      aria-label={`删除 ${product.name}`}
+                      aria-label={`归档 ${product.name}`}
                     >
-                      删除
+                      归档
                     </button>
                   </div>
                 </td>
@@ -213,9 +227,9 @@ export default function ProductsPage() {
 
       {pendingDelete && (
         <ConfirmDialog
-          title={`删除应用“${pendingDelete.name}”？`}
-          description="已有授权的应用不能删除。删除其他应用会同时删除其策略、注册密钥和 API 密钥，此操作不可撤销。"
-          confirmLabel="删除"
+          title={`归档应用“${pendingDelete.name}”？`}
+          description="归档后停止新建授权和续期，既有合同和设备记录保留。此操作不会立即停止客户离线软件。"
+          confirmLabel="归档"
           danger
           busy={deleting}
           onCancel={() => setPendingDelete(null)}

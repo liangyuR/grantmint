@@ -1,14 +1,3 @@
-/**
- * Small typed fetch wrapper for the Grantmint admin API.
- *
- * - Every request sends `credentials: 'include'` so the HttpOnly admin session cookie rides along.
- * - Every state-changing request (POST/PUT/PATCH/DELETE) echoes the `XSRF-TOKEN` cookie back as the
- *   `X-XSRF-TOKEN` header (double-submit CSRF; see GrantmintSecurityConfig's admin chain).
- * - A 401 from anywhere calls the registered "unauthorized" handler (wired to a redirect-to-login
- *   in AuthContext) before the error propagates.
- * - Errors are normalized to `ApiError`, unwrapping the server's `{error, message}` envelope.
- */
-
 export class ApiError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -32,16 +21,8 @@ export function setUnauthorizedHandler(fn: UnauthorizedHandler | null): void {
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-function readCookie(name: string): string | null {
-  const prefix = `${name}=`;
-  for (const part of document.cookie.split(';')) {
-    const trimmed = part.trim();
-    if (trimmed.startsWith(prefix)) {
-      return decodeURIComponent(trimmed.slice(prefix.length));
-    }
-  }
-  return null;
-}
+let csrfToken: string | null = null;
+export function setCsrfToken(value: string | null) { csrfToken = value; }
 
 interface ErrorEnvelope {
   error?: string;
@@ -50,22 +31,19 @@ interface ErrorEnvelope {
 
 export function localizedError(status: number, code?: string): string {
   const messages: Record<string, string> = {
-    product_has_licenses: '此应用已有授权，不能删除。',
     invalid_credentials: '用户名或密码错误。',
-    bad_credentials: '用户名或密码错误。',
-    invalid_argument: '请求参数无效，请检查填写内容。',
-    not_found: '记录不存在，请刷新后重试。',
-    forbidden: '没有执行此操作的权限。',
-    access_denied: '没有执行此操作的权限。',
-    license_revoked: '此授权已撤销。',
-    license_expired: '此授权已到期。',
-    license_suspended: '此授权已暂停。',
-    device_already_bound: '此授权已绑定其他设备。',
-    invalid_state_transition: '当前授权状态不允许此操作。',
-    seat_limit_exceeded: '已达到设备数量上限。',
-    offline_mode_required: '此授权需使用设备绑定激活流程。',
-    offline_mode_unsupported: '离线设备授权不支持此操作。',
-    signing_key_error: '签名密钥不可用，请联系部署管理员。',
+    invalid_expiry: '停用时间无效，续期必须晚于原期限和当前时间。',
+    invalid_entitlements: '权益仅允许布尔、文本或安全范围整数。',
+    invalid_customer: '请检查客户名称和邮箱。',
+    invalid_name: '名称不能为空，且不能过长。',
+    invalid_slug: '应用标识仅允许小写字母、数字和连字符。',
+    application_archived: '此应用已归档，不能新建授权或续期。',
+    license_revoked: '此授权已撤销，不能激活或续期。',
+    revision_conflict: '授权已被其他操作更新，请关闭并重新打开详情后核对。',
+    idempotency_conflict: '请求编号对应的内容不一致，请刷新详情后重试。',
+    signing_key_conflict: '此密钥已归属其他应用，请选择独立密钥。',
+    unknown_signing_key: '签名密钥未配置，请联系部署管理员。',
+    csrf_invalid: '安全令牌失效，请刷新页面或重新登录。',
   };
   if (code && messages[code]) return messages[code];
   if (status === 400) return '请求参数无效，请检查填写内容。';
@@ -86,7 +64,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   headers.set('Accept', 'application/json');
 
   if (WRITE_METHODS.has(method)) {
-    const xsrf = readCookie('XSRF-TOKEN');
+    const xsrf = csrfToken;
     if (xsrf) {
       headers.set('X-XSRF-TOKEN', xsrf);
     }

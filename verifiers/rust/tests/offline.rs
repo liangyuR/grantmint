@@ -32,6 +32,7 @@ fn state(device: &DeviceIdentity) -> VerificationState {
         revision: 1,
         binding_version: 1,
         max_seen_time: IAT,
+        serial: OTHER.into(),
     }
 }
 fn payload(device: &DeviceIdentity, fp: &str) -> Value {
@@ -361,4 +362,330 @@ fn excessive_or_noncanonical_untrusted_input_fails_before_use() {
             Error::Malformed
         );
     }
+}
+
+fn renewal(device: &DeviceIdentity, fp: &str) -> (ActivationResponse, DeviceChallenge) {
+    let now = EXP + 100;
+    let serial = "00000000-0000-4000-8000-000000000004";
+    let nonce = URL_SAFE_NO_PAD.encode([31; 32]);
+    let public = device.public_key_base64();
+    let message = grantmint_license_protocol::operation_message(
+        Operation::Sync,
+        &grantmint_license_protocol::ChallengeContext {
+            challenge_id: OTHER,
+            nonce: &nonce,
+            product_id: PRODUCT,
+            license_id: LICENSE,
+            device_public_key: &public,
+            fingerprint_hash: fp,
+            fingerprint_version: 1,
+        },
+        serial,
+    );
+    let challenge = DeviceChallenge {
+        challenge_id: OTHER.into(),
+        nonce,
+        message: URL_SAFE_NO_PAD.encode(message),
+        serial: serial.into(),
+        expires_at: chrono::DateTime::from_timestamp(now + 300, 0)
+            .unwrap()
+            .to_rfc3339(),
+    };
+    let mut claims = payload(device, fp);
+    claims["revision"] = json!(2);
+    claims["serial"] = json!(serial);
+    claims["iat"] = json!(now);
+    claims["nbf"] = json!(now);
+    claims["exp"] = json!(now + 86400 * 30);
+    let receipt = json!({"ver":2,"operation":"sync","challenge_id":OTHER,"nonce":challenge.nonce,
+        "product_id":PRODUCT,"lid":LICENSE,"device_key_hash":device.key_hash(),"serial":serial,"server_time":now});
+    (
+        ActivationResponse {
+            token: sign_raw(&claims.to_string(), "GMT"),
+            revision: 2,
+            binding_version: 1,
+            server_time: now,
+            time_receipt: sign_raw(&receipt.to_string(), "GMT-TIME"),
+        },
+        challenge,
+    )
+}
+
+#[test]
+fn expired_license_accepts_fresh_renewal_but_old_certificate_cannot_return() {
+    let device = DeviceIdentity::from_seed([8; 32]);
+    let fp = URL_SAFE_NO_PAD.encode([9; 32]);
+    let old_token = sign_raw(&payload(&device, &fp).to_string(), "GMT");
+    let expired = verify(
+        &old_token,
+        &keys(),
+        &context(&fp),
+        &device,
+        &state(&device),
+        EXP + 100,
+        0,
+    )
+    .unwrap();
+    assert_eq!(expired.status, Status::Expired);
+    let (response, challenge) = renewal(&device, &fp);
+    let accepted = accept_sync(
+        &response,
+        &challenge,
+        &keys(),
+        &context(&fp),
+        &device,
+        &expired.state,
+        SyncClock {
+            wall_now: EXP + 100,
+            monotonic_elapsed_seconds: 0,
+        },
+    )
+    .unwrap();
+    assert_eq!(accepted.status, Status::Valid);
+    assert_eq!(accepted.state.revision, 2);
+    assert!(accepted.state.max_seen_time >= expired.state.max_seen_time);
+    assert_eq!(
+        verify(
+            &old_token,
+            &keys(),
+            &context(&fp),
+            &device,
+            &accepted.state,
+            EXP + 100,
+            0
+        )
+        .unwrap_err(),
+        Error::Rollback
+    );
+}
+
+#[test]
+fn sync_rejects_receipt_replay_cross_operation_and_context_without_mutating_state() {
+    let device = DeviceIdentity::from_seed([8; 32]);
+    let fp = URL_SAFE_NO_PAD.encode([9; 32]);
+    let (response, challenge) = renewal(&device, &fp);
+    let persisted = state(&device);
+    let before = serde_json::to_string(&persisted).unwrap();
+    let parts: Vec<_> = response.time_receipt.split('.').collect();
+    let receipt: Value =
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[1]).unwrap()).unwrap();
+    for (field, value) in [
+        ("operation", json!("activate")),
+        ("nonce", json!(URL_SAFE_NO_PAD.encode([32; 32]))),
+        ("product_id", json!(OTHER)),
+        ("lid", json!(OTHER)),
+        ("device_key_hash", json!(URL_SAFE_NO_PAD.encode([33; 32]))),
+        ("serial", json!(OTHER)),
+    ] {
+        let mut changed = response.clone();
+        let mut body = receipt.clone();
+        body[field] = value;
+        changed.time_receipt = sign_raw(&body.to_string(), "GMT-TIME");
+        assert_eq!(
+            accept_sync(
+                &changed,
+                &challenge,
+                &keys(),
+                &context(&fp),
+                &device,
+                &persisted,
+                SyncClock {
+                    wall_now: EXP + 100,
+                    monotonic_elapsed_seconds: 0
+                }
+            )
+            .unwrap_err(),
+            Error::InvalidChallenge
+        );
+    }
+    assert!(accept_sync(
+        &response,
+        &challenge,
+        &keys(),
+        &context(&fp),
+        &device,
+        &persisted,
+        SyncClock {
+            wall_now: EXP + 400,
+            monotonic_elapsed_seconds: 0
+        }
+    )
+    .is_err());
+    assert_eq!(serde_json::to_string(&persisted).unwrap(), before);
+}
+
+#[test]
+fn sync_cannot_reset_serial_binding_or_trusted_time() {
+    let device = DeviceIdentity::from_seed([8; 32]);
+    let fp = URL_SAFE_NO_PAD.encode([9; 32]);
+    let (response, challenge) = renewal(&device, &fp);
+    for (persisted, error) in [
+        (
+            VerificationState {
+                revision: 2,
+                ..state(&device)
+            },
+            Error::Rollback,
+        ),
+        (
+            VerificationState {
+                binding_version: 2,
+                ..state(&device)
+            },
+            Error::Rollback,
+        ),
+        (
+            VerificationState {
+                max_seen_time: EXP + 1000,
+                ..state(&device)
+            },
+            Error::ClockSuspect,
+        ),
+    ] {
+        assert_eq!(
+            accept_sync(
+                &response,
+                &challenge,
+                &keys(),
+                &context(&fp),
+                &device,
+                &persisted,
+                SyncClock {
+                    wall_now: EXP + 100,
+                    monotonic_elapsed_seconds: 0
+                }
+            )
+            .unwrap_err(),
+            error
+        );
+    }
+    assert_eq!(
+        accept_sync(
+            &response,
+            &challenge,
+            &keys(),
+            &context(&fp),
+            &device,
+            &state(&device),
+            SyncClock {
+                wall_now: EXP + 100,
+                monotonic_elapsed_seconds: (EXP - IAT + 1000) as u64
+            }
+        )
+        .unwrap_err(),
+        Error::ClockSuspect
+    );
+}
+
+#[test]
+fn acknowledgement_requires_saved_serial_and_its_own_operation_domain() {
+    let device = DeviceIdentity::from_seed([8; 32]);
+    let fp = URL_SAFE_NO_PAD.encode([9; 32]);
+    let (response, mut challenge) = renewal(&device, &fp);
+    let accepted = accept_sync(
+        &response,
+        &challenge,
+        &keys(),
+        &context(&fp),
+        &device,
+        &state(&device),
+        SyncClock {
+            wall_now: EXP + 100,
+            monotonic_elapsed_seconds: 0,
+        },
+    )
+    .unwrap();
+    assert!(sign_acknowledgement(
+        &challenge,
+        &context(&fp),
+        &device,
+        &accepted.state,
+        EXP + 100
+    )
+    .is_err());
+    let public = device.public_key_base64();
+    challenge.message = URL_SAFE_NO_PAD.encode(grantmint_license_protocol::operation_message(
+        Operation::Ack,
+        &grantmint_license_protocol::ChallengeContext {
+            challenge_id: &challenge.challenge_id,
+            nonce: &challenge.nonce,
+            product_id: PRODUCT,
+            license_id: LICENSE,
+            device_public_key: &public,
+            fingerprint_hash: &fp,
+            fingerprint_version: 1,
+        },
+        &challenge.serial,
+    ));
+    assert!(sign_acknowledgement(
+        &challenge,
+        &context(&fp),
+        &device,
+        &state(&device),
+        EXP + 100
+    )
+    .is_err());
+    assert!(sign_acknowledgement(
+        &challenge,
+        &context(&fp),
+        &device,
+        &accepted.state,
+        EXP + 100
+    )
+    .is_ok());
+    assert!(sign_sync_challenge(&challenge, &context(&fp), &device, EXP + 100).is_err());
+}
+
+#[test]
+fn demo_bundle_replaces_certificate_and_highwater_together_and_failed_write_keeps_original() {
+    let device = DeviceIdentity::from_seed([8; 32]);
+    let fp = URL_SAFE_NO_PAD.encode([9; 32]);
+    let dir = std::env::temp_dir().join(format!("grantmint-bundle-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("bundle.json");
+    let old = OfflineBundle {
+        token: sign_raw(&payload(&device, &fp).to_string(), "GMT"),
+        state: state(&device),
+    };
+    save_demo_bundle(&path, &old).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let (response, challenge) = renewal(&device, &fp);
+    let accepted = accept_sync(
+        &response,
+        &challenge,
+        &keys(),
+        &context(&fp),
+        &device,
+        &old.state,
+        SyncClock {
+            wall_now: EXP + 100,
+            monotonic_elapsed_seconds: 0,
+        },
+    )
+    .unwrap();
+    let new = OfflineBundle {
+        token: response.token,
+        state: accepted.state,
+    };
+    assert!(save_demo_bundle(&path.join("invalid-child"), &new).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    save_demo_bundle(&path, &new).unwrap();
+    let saved: OfflineBundle = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        verify(
+            &saved.token,
+            &keys(),
+            &context(&fp),
+            &device,
+            &saved.state,
+            EXP + 100,
+            0
+        )
+        .unwrap()
+        .state
+        .revision,
+        2
+    );
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_dir(dir).unwrap();
 }

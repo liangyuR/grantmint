@@ -1,7 +1,9 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use grantmint_offline::{
-    accept_activation, parse_strict_json, sign_activation_challenge, verify, ActivationChallenge,
-    ActivationResponse, DeviceIdentity, ExpectedDevice, TrustedKeys, VerificationState,
+    accept_activation, accept_sync, parse_strict_json, save_demo_bundle, sign_acknowledgement,
+    sign_activation_challenge, sign_sync_challenge, verify, ActivationChallenge,
+    ActivationResponse, DeviceChallenge, DeviceIdentity, ExpectedDevice, OfflineBundle, SyncClock,
+    TrustedKeys, VerificationState,
 };
 use std::{
     env,
@@ -81,6 +83,107 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
+    if matches!(
+        args.first().map(String::as_str),
+        Some("sign-sync") | Some("sign-ack")
+    ) {
+        let ack = args[0] == "sign-ack";
+        if args.len() != if ack { 7 } else { 6 } {
+            return Err("sign-sync SEED CHALLENGE PRODUCT LICENSE FINGERPRINT; sign-ack also requires BUNDLE".into());
+        }
+        let device = identity(&args[1])?;
+        let challenge: DeviceChallenge = read_json(&args[2])?;
+        let expected = ExpectedDevice {
+            product_id: &args[3],
+            license_id: &args[4],
+            fingerprint_hash: &args[5],
+            fingerprint_version: 1,
+        };
+        let signature = if ack {
+            let bundle: OfflineBundle = read_json(&args[6])?;
+            sign_acknowledgement(&challenge, &expected, &device, &bundle.state, now)?
+        } else {
+            sign_sync_challenge(&challenge, &expected, &device, now)?
+        };
+        println!(
+            "{}",
+            serde_json::json!({"challengeId":challenge.challenge_id,"signature":signature,"serial":challenge.serial})
+        );
+        return Ok(());
+    }
+    if args.first().map(String::as_str) == Some("accept-sync") && args.len() == 9 {
+        let device = identity(&args[1])?;
+        let response: ActivationResponse = read_json(&args[2])?;
+        let challenge: DeviceChallenge = read_json(&args[3])?;
+        let trusted = keys(&args[4])?;
+        let expected = ExpectedDevice {
+            product_id: &args[5],
+            license_id: &args[6],
+            fingerprint_hash: &args[7],
+            fingerprint_version: 1,
+        };
+        let old: OfflineBundle = read_json(&args[8])?;
+        let result = accept_sync(
+            &response,
+            &challenge,
+            &trusted,
+            &expected,
+            &device,
+            &old.state,
+            SyncClock {
+                wall_now: now,
+                monotonic_elapsed_seconds: 0,
+            },
+        )?;
+        if !result.status.allows_new_work() {
+            return Err("renewed certificate is already expired".into());
+        }
+        let bundle = OfflineBundle {
+            token: response.token,
+            state: result.state,
+        };
+        save_demo_bundle(Path::new(&args[8]), &bundle)?;
+        println!(
+            "{}",
+            serde_json::json!({"status":result.status,"serial":result.claims.serial,"expiresAt":result.claims.exp})
+        );
+        return Ok(());
+    }
+    if args.first().map(String::as_str) == Some("verify-bundle") && args.len() == 7 {
+        let device = identity(&args[1])?;
+        let bundle: OfflineBundle = read_json(&args[2])?;
+        let trusted = keys(&args[3])?;
+        let expected = ExpectedDevice {
+            product_id: &args[4],
+            license_id: &args[5],
+            fingerprint_hash: &args[6],
+            fingerprint_version: 1,
+        };
+        let result = verify(
+            &bundle.token,
+            &trusted,
+            &expected,
+            &device,
+            &bundle.state,
+            now,
+            0,
+        )?;
+        save_demo_bundle(
+            Path::new(&args[2]),
+            &OfflineBundle {
+                token: bundle.token,
+                state: result.state,
+            },
+        )?;
+        println!(
+            "{}",
+            serde_json::json!({"status":result.status,"serial":result.claims.serial,"expiresAt":result.claims.exp})
+        );
+        if !result.status.allows_new_work() {
+            std::process::exit(3);
+        }
+        return Ok(());
+    }
     if args.first().map(String::as_str) == Some("sign-challenge") && args.len() == 6 {
         let device = identity(&args[1])?;
         let challenge: ActivationChallenge = read_json(&args[2])?;
@@ -97,7 +200,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
-    if args.first().map(String::as_str) == Some("accept-activation") && args.len() == 9 {
+    if matches!(
+        args.first().map(String::as_str),
+        Some("accept-activation") | Some("accept-activation-bundle")
+    ) && args.len() == 9
+    {
         let device = identity(&args[1])?;
         let response: ActivationResponse = read_json(&args[2])?;
         let challenge: ActivationChallenge = read_json(&args[3])?;
@@ -114,7 +221,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
         let result = accept_activation(&response, &challenge, &trusted, &expected, &device, now)?;
-        persist(&args[8], &result.state, true)?;
+        if args[0] == "accept-activation-bundle" {
+            let bundle = OfflineBundle {
+                token: response.token,
+                state: result.state.clone(),
+            };
+            let mut file = private_create(Path::new(&args[8]))?;
+            file.write_all(&serde_json::to_vec(&bundle)?)?;
+            file.sync_all()?;
+        } else {
+            persist(&args[8], &result.state, true)?;
+        }
         println!(
             "{}",
             serde_json::json!({"status":result.status,"serial":result.claims.serial,"expiresAt":result.claims.exp})
@@ -143,7 +260,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    Err("usage: keygen-demo SEED | sign-challenge SEED CHALLENGE PRODUCT LICENSE FINGERPRINT | accept-activation SEED RESPONSE CHALLENGE KEYS PRODUCT LICENSE FINGERPRINT STATE | verify SEED TOKEN KEYS PRODUCT LICENSE FINGERPRINT STATE".into())
+    Err("usage: sign-sync SEED CHALLENGE PRODUCT LICENSE FINGERPRINT | sign-ack SEED CHALLENGE PRODUCT LICENSE FINGERPRINT BUNDLE | accept-sync SEED RESPONSE CHALLENGE KEYS PRODUCT LICENSE FINGERPRINT BUNDLE | verify-bundle SEED BUNDLE KEYS PRODUCT LICENSE FINGERPRINT | accept-activation-bundle (same arguments as accept-activation) | keygen-demo SEED | sign-challenge SEED CHALLENGE PRODUCT LICENSE FINGERPRINT | accept-activation SEED RESPONSE CHALLENGE KEYS PRODUCT LICENSE FINGERPRINT STATE | verify SEED TOKEN KEYS PRODUCT LICENSE FINGERPRINT STATE".into())
 }
 fn main() {
     if let Err(error) = run() {

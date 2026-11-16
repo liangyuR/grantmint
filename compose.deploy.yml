@@ -1,6 +1,6 @@
 services:
   gateway:
-    image: ${GRANTMINT_DASHBOARD_IMAGE:-grantmint-dashboard:local}
+    image: ${GRANTMINT_DASHBOARD_IMAGE:-grantmint-rust-dashboard:local}
     build:
       context: dashboard
       args:
@@ -16,7 +16,7 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      grantmint-server:
+      license-server:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8081/healthz"]
@@ -25,34 +25,53 @@ services:
       retries: 3
     networks: [frontend]
 
-  grantmint-server:
-    image: ${GRANTMINT_SERVER_IMAGE:-grantmint-server:local}
+  license-server:
+    image: ${GRANTMINT_SERVER_IMAGE:-grantmint-rust-server:local}
     build:
       context: .
-      dockerfile: grantmint-server/Dockerfile
+      dockerfile: server/Dockerfile
       args:
-        JDK_IMAGE: ${JDK_IMAGE:-eclipse-temurin:21-jdk}
-        JRE_IMAGE: ${JRE_IMAGE:-eclipse-temurin:21-jre}
+        RUST_IMAGE: ${RUST_IMAGE:-rust:1.91.1-bookworm}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-debian:bookworm-slim}
     restart: unless-stopped
-    environment:
-      GRANTMINT_DB_URL: jdbc:postgresql://postgres:5432/grantmint
-      GRANTMINT_DB_USER: grantmint
-      GRANTMINT_DB_PASSWORD: ${GRANTMINT_DB_PASSWORD:?Set GRANTMINT_DB_PASSWORD}
-      GRANTMINT_ADMIN_USERNAME: ${GRANTMINT_ADMIN_USERNAME:-admin}
-      GRANTMINT_ADMIN_PASSWORD: ${GRANTMINT_ADMIN_PASSWORD:?Set GRANTMINT_ADMIN_PASSWORD}
-      GRANTMINT_ADMIN_SESSION_COOKIESECURE: "false"
-    volumes:
-      - signing-keys:/keys:ro
+    environment: &server-environment
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: grantmint
+      DB_USER: grantmint
+      DB_PASSWORD: ${GRANTMINT_DB_PASSWORD:?Set GRANTMINT_DB_PASSWORD}
+      ADMIN_USERNAME: ${GRANTMINT_ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${GRANTMINT_ADMIN_PASSWORD:?Set GRANTMINT_ADMIN_PASSWORD}
+      COOKIE_SECURE: "false"
+      PUBLIC_ORIGIN: ${GRANTMINT_PUBLIC_ORIGIN:-http://127.0.0.1:8180}
+      KEYS_DIR: /keys
+      SIGNING_KEYS_FILE: /config/keys.json
+    volumes: &server-volumes
+      - rust-signing-keys:/keys:ro
+      - ${GRANTMINT_KEYS_CONFIG:-./config/keys.json}:/config/keys.json:ro
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9090/actuator/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
       interval: 15s
       timeout: 3s
       retries: 5
-      start_period: 45s
+      start_period: 20s
     networks: [frontend, database]
+
+  migrate:
+    image: ${GRANTMINT_SERVER_IMAGE:-grantmint-rust-server:local}
+    command: ["migrate"]
+    restart: "no"
+    environment: *server-environment
+    volumes: *server-volumes
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [database]
 
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
@@ -62,7 +81,7 @@ services:
       POSTGRES_USER: grantmint
       POSTGRES_PASSWORD: ${GRANTMINT_DB_PASSWORD:?Set GRANTMINT_DB_PASSWORD}
     volumes:
-      - database:/var/lib/postgresql/data
+      - rust-database:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U grantmint -d grantmint"]
       interval: 10s
@@ -70,18 +89,18 @@ services:
       retries: 5
     networks: [database]
 
-  key-import:
-    image: ${GRANTMINT_SERVER_IMAGE:-grantmint-server:local}
+  key-tools:
+    image: ${GRANTMINT_SERVER_IMAGE:-grantmint-rust-server:local}
     profiles: [tools]
-    user: "0"
     network_mode: none
-    entrypoint: ["sh"]
+    environment:
+      KEYS_DIR: /keys
     volumes:
-      - signing-keys:/keys
+      - rust-signing-keys:/keys
 
 volumes:
-  database:
-  signing-keys:
+  rust-database:
+  rust-signing-keys:
   caddy-data:
   caddy-config:
 
