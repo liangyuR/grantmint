@@ -67,9 +67,11 @@ jobs:
 
       # One command runs everything the build binds into verify: Surefire (unit +
       # jqwik + ArchUnit), the Postgres Testcontainers ITs, spotless:check, and the
-      # checkstyle Locale.ROOT lint. Never add -Dapi.version here — that flag is a
-      # local OrbStack workaround only (see the developer notes), not for real Docker.
+      # checkstyle Locale.ROOT lint. Docker on hosted runners rejects the bundled
+      # docker-java default API 1.32; select a supported API for Testcontainers.
       - name: Build and verify
+        env:
+          JAVA_TOOL_OPTIONS: -Dapi.version=1.44
         run: ./mvnw -B -ntp verify
 
       - name: Surefire reports on failure
