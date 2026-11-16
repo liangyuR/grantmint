@@ -1,0 +1,32 @@
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	@deniedAdmin {
+		path /admin /admin/*
+		not remote_ip {$ADMIN_ALLOWED_CIDRS:private_ranges}
+	}
+	handle @deniedAdmin {
+		respond "Administrative access is restricted" 403
+	}
+
+	@api path /admin /admin/* /v1 /v1/* /v2 /v2/* /issuance /issuance/* /webhooks /webhooks/*
+	handle @api {
+		reverse_proxy grantmint-server:8080
+	}
+
+	@private path /actuator /actuator/* /metrics /metrics/* /v3 /v3/* /swagger-ui /swagger-ui/* /swagger-ui.html
+	handle @private {
+		respond "Not found" 404
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		header Cache-Control "no-store"
+		file_server
+	}
+}
+
+:8081 {
+	respond /healthz "ok" 200
+}

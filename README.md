@@ -289,6 +289,7 @@ The starter is **self-contained by construction** — an ArchUnit rule fails the
 
 ## Documentation
 
+- **Multi-application console** — [operator guide](docs/features/multi-application-console.md) and [Docker deployment](docs/deployment/docker.md) for a same-origin dashboard and API, including HTTPS setup.
 - **Fork design documents** — [docs/README.md](docs/README.md), including the proposed multi-application, device-bound offline licensing design.
 - **API reference** — Swagger UI at `/swagger-ui.html` on a running server (all three auth schemes documented; admin-gated by default).
 - **Cross-verifier contract** — the pinned token fixture consumed by the Java core, the starter, and the Go/Swift suites, guarded in CI by `scripts/check-fixture-parity.py`.

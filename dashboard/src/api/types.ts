@@ -38,6 +38,15 @@ export interface UpdateProductRequest {
   description: string | null;
 }
 
+export interface SigningKey {
+  keyId: string;
+  productId: string;
+  algorithm: string;
+  publicKey: string;
+  status: string;
+  createdAt: string;
+}
+
 // ─── Policies (PolicyAdminController) ───────────────────────────────────────
 
 export type EntitlementValue = boolean | number | string;

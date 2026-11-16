@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useProducts } from '../products/ProductContext';
+import { useResource } from '../api/useResource';
 import type { FormEvent } from 'react';
 import { api, ApiError } from '../api/client';
-import type { CreatePolicyRequest, Policy, Product, UpdatePolicyRequest } from '../api/types';
+import type { CreatePolicyRequest, Policy, UpdatePolicyRequest } from '../api/types';
 import Alert from '../components/Alert';
 import EntitlementsEditor from '../components/EntitlementsEditor';
 import FormField, { buttonClasses, inputClasses, secondaryButtonClasses } from '../components/FormField';
@@ -33,9 +35,9 @@ function toFormState(policy?: Policy): PolicyFormState {
 }
 
 export default function PoliciesPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [productId, setProductId] = useState<string>('');
-  const [policies, setPolicies] = useState<Policy[] | null>(null);
+  const { product } = useProducts();
+  const productId = product?.id ?? '';
+  const { data: policies, error: loadError, reload } = useResource<Policy[]>(productId ? `/admin/products/${productId}/policies` : null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -43,34 +45,6 @@ export default function PoliciesPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [form, setForm] = useState<PolicyFormState>(toFormState());
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api
-      .get<Product[]>('/admin/products')
-      .then((data) => {
-        setProducts(data);
-        const first = data[0];
-        if (first) setProductId(first.id);
-      })
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : 'Failed to load products.'));
-  }, []);
-
-  async function loadPolicies(id: string) {
-    if (!id) return;
-    setError(null);
-    try {
-      const data = await api.get<Policy[]>(`/admin/products/${id}/policies`);
-      setPolicies(data);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load policies.');
-    }
-  }
-
-  useEffect(() => {
-    setSelectedPolicyId(null);
-    setShowCreateForm(false);
-    void loadPolicies(productId);
-  }, [productId]);
 
   const selectedPolicy = policies?.find((p) => p.id === selectedPolicyId) ?? null;
 
@@ -119,7 +93,7 @@ export default function PoliciesPage() {
       const created = await api.post<Policy>(`/admin/products/${productId}/policies`, body);
       setMessage(`Created policy "${created.name}". Add entitlements below.`);
       setShowCreateForm(false);
-      await loadPolicies(productId);
+      reload();
       setSelectedPolicyId(created.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create policy.');
@@ -148,7 +122,7 @@ export default function PoliciesPage() {
       };
       await api.put(`/admin/policies/${selectedPolicy.id}`, body);
       setMessage(`Updated policy "${form.name}".`);
-      await loadPolicies(productId);
+      reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update policy.');
     } finally {
@@ -163,7 +137,7 @@ export default function PoliciesPage() {
       await api.delete(`/admin/policies/${policy.id}`);
       setMessage(`Deleted policy "${policy.name}".`);
       if (selectedPolicyId === policy.id) setSelectedPolicyId(null);
-      await loadPolicies(productId);
+      reload();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to delete policy.');
     }
@@ -174,29 +148,13 @@ export default function PoliciesPage() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-xl font-semibold text-white">Policies</h1>
         <div className="flex items-center gap-2">
-          <label htmlFor="product-select" className="text-sm text-gray-400">
-            Product
-          </label>
-          <select
-            id="product-select"
-            className={inputClasses}
-            value={productId}
-            onChange={(e) => setProductId(e.target.value)}
-          >
-            {products.length === 0 && <option value="">No products</option>}
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
           <button type="button" className={buttonClasses} disabled={!productId} onClick={startCreate}>
             New policy
           </button>
         </div>
       </div>
 
-      {error && <Alert kind="error">{error}</Alert>}
+      {(error || loadError) && <Alert kind="error">{error || loadError}</Alert>}
       {message && <Alert kind="success">{message}</Alert>}
 
       {showCreateForm && (
@@ -226,10 +184,10 @@ export default function PoliciesPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {policies === null && (
+            {!loadError && policies === null && (
               <tr>
                 <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
-                  Loading…
+                  {productId ? 'Loading…' : 'Select or create a product first.'}
                 </td>
               </tr>
             )}
@@ -287,7 +245,7 @@ export default function PoliciesPage() {
             saving={saving}
             codeEditable={false}
           />
-          <EntitlementsEditor policyId={selectedPolicy.id} onChanged={() => void loadPolicies(productId)} />
+          <EntitlementsEditor policyId={selectedPolicy.id} onChanged={reload} />
         </div>
       )}
     </div>

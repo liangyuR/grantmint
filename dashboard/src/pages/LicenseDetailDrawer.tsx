@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useProducts } from '../products/ProductContext';
+import { useResource } from '../api/useResource';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type { LicenseDetail } from '../api/types';
@@ -11,41 +13,29 @@ export default function LicenseDetailDrawer() {
   const { keyId } = useParams<{ keyId: string }>();
   const navigate = useNavigate();
 
-  const [license, setLicense] = useState<LicenseDetail | null>(null);
+  const { product } = useProducts();
+  const { data, error: loadError, reload } = useResource<LicenseDetail>(keyId ? `/admin/licenses/${keyId}` : null);
+  const wrongProduct = !!data && data.productId !== product?.id;
+  const license = wrongProduct ? null : data;
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmingRevoke, setConfirmingRevoke] = useState(false);
-
-  async function load() {
-    if (!keyId) return;
-    setError(null);
-    try {
-      const data = await api.get<LicenseDetail>(`/admin/licenses/${keyId}`);
-      setLicense(data);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load license.');
-    }
-  }
-
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyId]);
 
   function close() {
     navigate('/licenses');
   }
 
   async function handleSuspend() {
-    if (!keyId) return;
+    if (!keyId || !license) return;
     setBusy(true);
     setError(null);
     try {
-      const reason = window.prompt('Reason for suspension (optional):') ?? undefined;
+      const reason = window.prompt('Reason for suspension (optional):');
+      if (reason === null) return;
       await api.post(`/admin/licenses/${keyId}/suspend`, reason ? { reason } : {});
       setMessage('License suspended.');
-      await load();
+      reload();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to suspend license.');
     } finally {
@@ -54,13 +44,13 @@ export default function LicenseDetailDrawer() {
   }
 
   async function handleReinstate() {
-    if (!keyId) return;
+    if (!keyId || !license) return;
     setBusy(true);
     setError(null);
     try {
       await api.post(`/admin/licenses/${keyId}/reinstate`);
       setMessage('License reinstated.');
-      await load();
+      reload();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to reinstate license.');
     } finally {
@@ -69,14 +59,14 @@ export default function LicenseDetailDrawer() {
   }
 
   async function handleRevoke() {
-    if (!keyId) return;
+    if (!keyId || !license) return;
     setBusy(true);
     setError(null);
     try {
       await api.delete(`/admin/licenses/${keyId}`, { reason: 'Revoked from operator console' });
       setMessage('License revoked. This is terminal.');
       setConfirmingRevoke(false);
-      await load();
+      reload();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to revoke license.');
     } finally {
@@ -85,14 +75,14 @@ export default function LicenseDetailDrawer() {
   }
 
   async function handleForceDeactivate(activationId: string) {
-    if (!keyId) return;
+    if (!keyId || !license) return;
     if (!window.confirm('Force-deactivate this device? Its seat will be released immediately.')) return;
     setBusy(true);
     setError(null);
     try {
       await api.delete(`/admin/licenses/${keyId}/activations/${activationId}`);
       setMessage('Activation deactivated.');
-      await load();
+      reload();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to deactivate.');
     } finally {
@@ -121,10 +111,10 @@ export default function LicenseDetailDrawer() {
         </div>
 
         <div className="mt-4 space-y-4">
-          {error && <Alert kind="error">{error}</Alert>}
+          {(error || loadError || wrongProduct) && <Alert kind="error">{error || loadError || 'This license does not belong to the current product. Close this panel and select the correct product.'}</Alert>}
           {message && <Alert kind="success">{message}</Alert>}
 
-          {!license && !error && <p className="text-sm text-gray-500">Loading…</p>}
+          {!license && !error && !loadError && !wrongProduct && <p className="text-sm text-gray-500">Loading…</p>}
 
           {license && (
             <>
@@ -152,9 +142,9 @@ export default function LicenseDetailDrawer() {
                   <dd className="text-gray-100">{new Date(license.issuedAt).toLocaleString()}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs uppercase text-gray-500">Expires</dt>
+                  <dt className="text-xs uppercase text-gray-500">Stops (Beijing)</dt>
                   <dd className="text-gray-100">
-                    {license.expiresAt ? new Date(license.expiresAt).toLocaleString() : 'Perpetual'}
+                    {license.expiresAt ? new Date(license.expiresAt).toLocaleString('en-GB', { timeZone: 'Asia/Shanghai', hourCycle: 'h23' }) : 'Perpetual'}
                   </dd>
                 </div>
               </div>

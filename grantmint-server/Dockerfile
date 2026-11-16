@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 #
 # Fat-JAR fallback image for grantmint-server.
 #
@@ -23,7 +22,9 @@
 ############################
 # Stage 1 -- Maven build   #
 ############################
-FROM eclipse-temurin:21-jdk AS build
+ARG JDK_IMAGE=eclipse-temurin:21-jdk
+ARG JRE_IMAGE=eclipse-temurin:21-jre
+FROM ${JDK_IMAGE} AS build
 
 WORKDIR /build
 
@@ -52,7 +53,7 @@ RUN ./mvnw -B -DskipTests -pl grantmint-server -am package
 ############################
 # Stage 2 -- JRE runtime   #
 ############################
-FROM eclipse-temurin:21-jre AS runtime
+FROM ${JRE_IMAGE} AS runtime
 
 # eclipse-temurin's JRE base image ships neither curl nor wget; the
 # HEALTHCHECK below needs one. curl is the smallest reliable option here.
