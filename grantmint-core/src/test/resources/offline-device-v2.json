@@ -1,0 +1,43 @@
+{
+  "description": "PUBLIC TEST KEYS ONLY; never use these seeds for deployment",
+  "serverSeedHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "deviceSeedHex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+  "serverPublicKey": "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+  "devicePublicKey": "Kay64UG8yvCyLhqU000LxzYeUm0L/hLIl5S8kyKWbdc=",
+  "claims": {
+    "ver": 2,
+    "mode": "offline_device",
+    "lid": "22222222-2222-4222-8222-222222222222",
+    "kid": "TEST-LICENSE",
+    "product_id": "11111111-1111-4111-8111-111111111111",
+    "prd": "fixture-product",
+    "serial": "33333333-3333-4333-8333-333333333333",
+    "revision": 1,
+    "binding_version": 1,
+    "device_key_hash": "JPbtasv-EAnAMNfKVnwzykgwkRSYI2tVYabIKr7F3ig",
+    "fingerprint_hash": "gLL4l-k-gfdp7dAnM8Dz5B7PKeQ9dtEKJjxntyax_mc",
+    "fingerprint_version": 1,
+    "iat": 1794787200,
+    "nbf": 1794787200,
+    "exp": 1796054400,
+    "ent": {
+      "inspect": {
+        "bool": true
+      }
+    },
+    "seat": 1
+  },
+  "receiptClaims": {
+    "ver": 2,
+    "operation": "activate",
+    "challenge_id": "44444444-4444-4444-8444-444444444444",
+    "nonce": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8",
+    "product_id": "11111111-1111-4111-8111-111111111111",
+    "lid": "22222222-2222-4222-8222-222222222222",
+    "device_key_hash": "JPbtasv-EAnAMNfKVnwzykgwkRSYI2tVYabIKr7F3ig",
+    "serial": "33333333-3333-4333-8333-333333333333",
+    "server_time": 1794787200
+  },
+  "token": "eyJhbGciOiJFZERTQSIsImNydiI6IkVkMjU1MTkiLCJraWQiOiJmaXh0dXJlLXNpZ25pbmcta2V5IiwidHlwIjoiR01UIn0.eyJiaW5kaW5nX3ZlcnNpb24iOjEsImRldmljZV9rZXlfaGFzaCI6IkpQYnRhc3YtRUFuQU1OZktWbnd6eWtnd2tSU1lJMnRWWWFiSUtyN0YzaWciLCJlbnQiOnsiaW5zcGVjdCI6eyJib29sIjp0cnVlfX0sImV4cCI6MTc5NjA1NDQwMCwiZmluZ2VycHJpbnRfaGFzaCI6ImdMTDRsLWstZ2ZkcDdkQW5NOER6NUI3UEtlUTlkdEVLSmp4bnR5YXhfbWMiLCJmaW5nZXJwcmludF92ZXJzaW9uIjoxLCJpYXQiOjE3OTQ3ODcyMDAsImtpZCI6IlRFU1QtTElDRU5TRSIsImxpZCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsIm1vZGUiOiJvZmZsaW5lX2RldmljZSIsIm5iZiI6MTc5NDc4NzIwMCwicHJkIjoiZml4dHVyZS1wcm9kdWN0IiwicHJvZHVjdF9pZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsInJldmlzaW9uIjoxLCJzZWF0IjoxLCJzZXJpYWwiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJ2ZXIiOjJ9.2o46O3al3xxmb6HkQuY-mCaoDp_XNrdZAMaqlKdJFWNtFFmFdfeUHEtDe_1GYxgjmhRHDlY9MAJSG9cC0_S3DA",
+  "timeReceipt": "eyJhbGciOiJFZERTQSIsImNydiI6IkVkMjU1MTkiLCJraWQiOiJmaXh0dXJlLXNpZ25pbmcta2V5IiwidHlwIjoiR01ULVRJTUUifQ.eyJjaGFsbGVuZ2VfaWQiOiI0NDQ0NDQ0NC00NDQ0LTQ0NDQtODQ0NC00NDQ0NDQ0NDQ0NDQiLCJkZXZpY2Vfa2V5X2hhc2giOiJKUGJ0YXN2LUVBbkFNTmZLVm53enlrZ3drUlNZSTJ0VllhYklLcjdGM2lnIiwibGlkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwibm9uY2UiOiJRRUZDUTBSRlJrZElTVXBMVEUxT1QxQlJVbE5VVlZaWFdGbGFXMXhkWGw4Iiwib3BlcmF0aW9uIjoiYWN0aXZhdGUiLCJwcm9kdWN0X2lkIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwic2VyaWFsIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwic2VydmVyX3RpbWUiOjE3OTQ3ODcyMDAsInZlciI6Mn0.NzOZeLSe_wvGXHHVmvLV_O8Izp6FLK3fj7UjZia6O6tb98ho3ZJWaKb5IHtk5D6nSUjWC8aqc1WiCPimyAxwCw"
+}

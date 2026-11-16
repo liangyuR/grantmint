@@ -26,13 +26,13 @@ export function ProductProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.get<Product[]>('/admin/products');
+      const data = await api.get<Product[]>('/admin/v2/applications');
       if (request !== generation.current) return;
       setProducts(data);
       setSelectedId((current) => data.some((p) => p.id === current) ? current : data[0]?.id ?? '');
     } catch (err) {
       if (request === generation.current) {
-        setError(err instanceof ApiError ? err.message : 'Failed to load products.');
+        setError(err instanceof ApiError ? err.message : '加载应用失败。');
       }
     } finally {
       if (request === generation.current) setLoading(false);

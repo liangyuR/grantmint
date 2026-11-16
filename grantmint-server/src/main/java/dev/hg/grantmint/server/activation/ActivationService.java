@@ -227,6 +227,8 @@ public class ActivationService {
         License license = licenses.findByKeyId(keyId)
                 .orElseThrow(() -> new NoSuchElementException("License not found: " + keyId));
         guardProduct(license, requesterProductId, keyId);
+        if (license.isOfflineDevice())
+            throw new dev.hg.grantmint.server.offline.OfflineLicenseException(409, "offline_requires_v2");
         assertHeartbeatable(license);
 
         MachineActivation activation = activations
@@ -291,6 +293,8 @@ public class ActivationService {
         License license = licenses.findByKeyIdForUpdate(keyId)
                 .orElseThrow(() -> new NoSuchElementException("License not found: " + keyId));
         guardProduct(license, requesterProductId, keyId);
+        if (license.isOfflineDevice())
+            throw new dev.hg.grantmint.server.offline.OfflineLicenseException(409, "offline_requires_v2");
         return license;
     }
 

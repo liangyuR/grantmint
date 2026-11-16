@@ -90,7 +90,7 @@ export default function ConfirmDialog({
             onClick={onCancel}
             className="rounded-md border border-gray-700 px-3 py-1.5 text-sm font-medium text-gray-200 hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
-            Cancel
+            取消
           </button>
           <button
             ref={confirmRef}
@@ -101,7 +101,7 @@ export default function ConfirmDialog({
               danger ? 'bg-red-600 hover:bg-red-500 focus-visible:ring-red-500' : 'bg-indigo-600 hover:bg-indigo-500 focus-visible:ring-indigo-500'
             }`}
           >
-            {busy ? 'Working…' : confirmLabel}
+            {busy ? '处理中…' : confirmLabel}
           </button>
         </div>
       </div>

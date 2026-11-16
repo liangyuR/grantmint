@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ApiError, api, setUnauthorizedHandler } from '../api/client';
+import { ApiError, api, setUnauthorizedHandler, setCsrfToken } from '../api/client';
 import type { AdminSummary, LoginResponse } from '../api/types';
 
 type AuthStatus = 'checking' | 'authenticated' | 'anonymous';
@@ -19,6 +19,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [admin, setAdmin] = useState<AdminSummary | null>(null);
 
   const markAnonymous = useCallback(() => {
+    setCsrfToken(null);
     setAdmin(null);
     setStatus('anonymous');
   }, []);
@@ -29,15 +30,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setUnauthorizedHandler(null);
   }, [markAnonymous]);
 
-  // There is no /admin/auth/me endpoint yet, so on load we probe with a cheap, harmless GET the
-  // dashboard needs anyway. A 401 (via the global handler) flips us to anonymous; success means
-  // the session cookie from a previous visit is still good.
   useEffect(() => {
     let cancelled = false;
     api
-      .get('/admin/products')
-      .then(() => {
-        if (!cancelled) setStatus('authenticated');
+      .get<AdminSummary>('/admin/auth/me')
+      .then((result) => {
+        if (!cancelled) { setAdmin(result); setCsrfToken(result.csrfToken); setStatus('authenticated'); }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -55,16 +53,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     const result = await api.post<LoginResponse>('/admin/auth/login', { username, password });
-    setAdmin(result.admin);
+    setAdmin(result);
+    setCsrfToken(result.csrfToken);
     setStatus('authenticated');
   }, []);
 
   const logout = useCallback(async () => {
-    try {
-      await api.post('/admin/auth/logout');
-    } finally {
-      markAnonymous();
-    }
+    await api.post('/admin/auth/logout');
+    markAnonymous();
   }, [markAnonymous]);
 
   const value = useMemo(() => ({ status, admin, login, logout }), [status, admin, login, logout]);

@@ -59,6 +59,7 @@ public interface MachineActivationRepository extends JpaRepository<MachineActiva
      * the sweep job (M7) must either pass the most-permissive (largest) effective cutoff or iterate
      * per policy — this query intentionally stays policy-agnostic.
      */
-    @Query("select a from MachineActivation a" + " where a.status = 'active' and a.lastHeartbeatAt < :cutoff")
+    @Query("select a from MachineActivation a"
+            + " where a.status = 'active' and a.license.mode = 'legacy_v1' and a.lastHeartbeatAt < :cutoff")
     List<MachineActivation> findStaleActive(@Param("cutoff") OffsetDateTime cutoff);
 }

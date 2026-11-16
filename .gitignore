@@ -185,3 +185,4 @@ pnpm-debug.log*
 *.backup
 *.orig
 .cache/
+/config/keys.json
