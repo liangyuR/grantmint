@@ -266,7 +266,10 @@ public class LicenseAdminController {
             long activeSeats,
             OffsetDateTime issuedAt,
             OffsetDateTime expiresAt,
-            String externalRef) {
+            String externalRef,
+            String mode,
+            int revision,
+            int bindingVersion) {
 
         static LicenseSummaryView of(License l, long activeSeats) {
             return new LicenseSummaryView(
@@ -280,7 +283,10 @@ public class LicenseAdminController {
                     activeSeats,
                     l.getIssuedAt(),
                     l.getExpiresAt(),
-                    l.getExternalRef());
+                    l.getExternalRef(),
+                    l.getMode(),
+                    l.getRevision(),
+                    l.getBindingVersion());
         }
     }
 
@@ -304,7 +310,13 @@ public class LicenseAdminController {
             OffsetDateTime suspendedAt,
             OffsetDateTime revokedAt,
             String externalRef,
-            List<ActivationView> activations) {
+            List<ActivationView> activations,
+            String mode,
+            int revision,
+            int bindingVersion,
+            String devicePublicKey,
+            String fingerprintHash,
+            Integer fingerprintVersion) {
 
         static LicenseDetailView of(License l, List<MachineActivation> licenseActivations) {
             return new LicenseDetailView(
@@ -326,7 +338,13 @@ public class LicenseAdminController {
                     l.getSuspendedAt(),
                     l.getRevokedAt(),
                     l.getExternalRef(),
-                    licenseActivations.stream().map(ActivationView::of).toList());
+                    licenseActivations.stream().map(ActivationView::of).toList(),
+                    l.getMode(),
+                    l.getRevision(),
+                    l.getBindingVersion(),
+                    l.getDevicePublicKey(),
+                    l.getFingerprintHash(),
+                    l.getFingerprintVersion());
         }
     }
 

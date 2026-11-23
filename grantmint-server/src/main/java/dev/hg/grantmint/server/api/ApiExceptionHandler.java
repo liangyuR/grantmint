@@ -24,6 +24,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    @ExceptionHandler(dev.hg.grantmint.server.offline.OfflineLicenseException.class)
+    ResponseEntity<ApiError> handleOffline(dev.hg.grantmint.server.offline.OfflineLicenseException ex) {
+        return ResponseEntity.status(ex.status()).body(new ApiError(ex.code(), ex.getMessage()));
+    }
+
     /**
      * A failed admin login — a 401 with {@code unauthorized}. Thrown by the login endpoint itself
      * (the request never carried credentials for the filter chain to reject), so unlike the other

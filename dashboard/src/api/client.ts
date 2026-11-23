@@ -1,14 +1,3 @@
-/**
- * Small typed fetch wrapper for the Grantmint admin API.
- *
- * - Every request sends `credentials: 'include'` so the HttpOnly admin session cookie rides along.
- * - Every state-changing request (POST/PUT/PATCH/DELETE) echoes the `XSRF-TOKEN` cookie back as the
- *   `X-XSRF-TOKEN` header (double-submit CSRF; see GrantmintSecurityConfig's admin chain).
- * - A 401 from anywhere calls the registered "unauthorized" handler (wired to a redirect-to-login
- *   in AuthContext) before the error propagates.
- * - Errors are normalized to `ApiError`, unwrapping the server's `{error, message}` envelope.
- */
-
 export class ApiError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -32,20 +21,37 @@ export function setUnauthorizedHandler(fn: UnauthorizedHandler | null): void {
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-function readCookie(name: string): string | null {
-  const prefix = `${name}=`;
-  for (const part of document.cookie.split(';')) {
-    const trimmed = part.trim();
-    if (trimmed.startsWith(prefix)) {
-      return decodeURIComponent(trimmed.slice(prefix.length));
-    }
-  }
-  return null;
-}
+let csrfToken: string | null = null;
+export function setCsrfToken(value: string | null) { csrfToken = value; }
 
 interface ErrorEnvelope {
   error?: string;
   message?: string;
+}
+
+export function localizedError(status: number, code?: string): string {
+  const messages: Record<string, string> = {
+    invalid_credentials: '用户名或密码错误。',
+    invalid_expiry: '停用时间无效，续期必须晚于原期限和当前时间。',
+    invalid_entitlements: '权益仅允许布尔、文本或安全范围整数。',
+    invalid_customer: '请检查客户名称和邮箱。',
+    invalid_name: '名称不能为空，且不能过长。',
+    invalid_slug: '应用标识仅允许小写字母、数字和连字符。',
+    application_archived: '此应用已归档，不能新建授权或续期。',
+    license_revoked: '此授权已撤销，不能激活或续期。',
+    revision_conflict: '授权已被其他操作更新，请关闭并重新打开详情后核对。',
+    idempotency_conflict: '请求编号对应的内容不一致，请刷新详情后重试。',
+    signing_key_conflict: '此密钥已归属其他应用，请选择独立密钥。',
+    unknown_signing_key: '签名密钥未配置，请联系部署管理员。',
+    csrf_invalid: '安全令牌失效，请刷新页面或重新登录。',
+  };
+  if (code && messages[code]) return messages[code];
+  if (status === 400) return '请求参数无效，请检查填写内容。';
+  if (status === 403) return '操作被拒绝，请刷新页面并确认登录权限。';
+  if (status === 404) return '记录不存在，请刷新后重试。';
+  if (status === 409) return '记录状态发生冲突，请刷新后重试。';
+  if (status === 429) return '请求过于频繁，请稍后再试。';
+  return `请求失败（HTTP ${status}${code ? `，${code}` : ''}），请稍后重试或联系管理员。`;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -58,17 +64,22 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   headers.set('Accept', 'application/json');
 
   if (WRITE_METHODS.has(method)) {
-    const xsrf = readCookie('XSRF-TOKEN');
+    const xsrf = csrfToken;
     if (xsrf) {
       headers.set('X-XSRF-TOKEN', xsrf);
     }
   }
 
-  const response = await fetch(path, { ...init, method, headers, credentials: 'include' });
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, method, headers, credentials: 'include' });
+  } catch {
+    throw new ApiError(0, 'network_error', '无法连接服务器，请检查网络后重试。');
+  }
 
   if (response.status === 401) {
     unauthorizedHandler?.();
-    throw new ApiError(401, 'unauthorized', 'Your session has expired. Please log in again.');
+    throw new ApiError(401, 'unauthorized', path === '/admin/auth/login' ? '用户名或密码错误。' : '登录已过期，请重新登录。');
   }
 
   if (response.status === 204) {
@@ -76,14 +87,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   const text = await response.text();
-  const data = text.length > 0 ? (JSON.parse(text) as unknown) : undefined;
+  let data: unknown;
+  try {
+    data = text.length > 0 ? JSON.parse(text) : undefined;
+  } catch {
+    throw new ApiError(response.status, 'invalid_response', '服务器响应格式异常，请联系部署管理员。');
+  }
 
   if (!response.ok) {
     const envelope = (data as ErrorEnvelope | undefined) ?? {};
     throw new ApiError(
       response.status,
       envelope.error,
-      envelope.message ?? `Request failed with status ${response.status}`,
+      localizedError(response.status, envelope.error),
     );
   }
 

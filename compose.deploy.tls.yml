@@ -5,6 +5,7 @@ services:
     ports: !override
       - "80:80"
       - "443:443"
-  grantmint-server:
+  license-server:
     environment:
-      GRANTMINT_ADMIN_SESSION_COOKIESECURE: "true"
+      COOKIE_SECURE: "true"
+      PUBLIC_ORIGIN: https://${GRANTMINT_DOMAIN:?Set GRANTMINT_DOMAIN to a public DNS hostname}

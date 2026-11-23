@@ -5,10 +5,9 @@ import Shell from './components/Shell'
 import LoginPage from './pages/LoginPage'
 import ProductsPage from './pages/ProductsPage'
 import ProductDetailPage from './pages/ProductDetailPage'
-import PoliciesPage from './pages/PoliciesPage'
 import LicensesPage from './pages/LicensesPage'
 import LicenseDetailDrawer from './pages/LicenseDetailDrawer'
-import DemoPage from './pages/DemoPage'
+import AuditPage from './pages/AuditPage'
 
 export default function App() {
   return (
@@ -20,11 +19,10 @@ export default function App() {
             <Route index element={<Navigate to="/products" replace />} />
             <Route path="products" element={<ProductsPage />} />
             <Route path="products/:productId" element={<ProductDetailPage />} />
-            <Route path="policies" element={<PoliciesPage />} />
             <Route path="licenses" element={<LicensesPage />}>
-              <Route path=":keyId" element={<LicenseDetailDrawer />} />
+              <Route path=":licenseId" element={<LicenseDetailDrawer />} />
             </Route>
-            <Route path="demo" element={<DemoPage />} />
+            <Route path="audit" element={<AuditPage />} />
             <Route path="*" element={<Navigate to="/products" replace />} />
           </Route>
         </Route>

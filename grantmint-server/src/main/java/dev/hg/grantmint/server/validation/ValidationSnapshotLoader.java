@@ -55,6 +55,8 @@ public class ValidationSnapshotLoader {
     public ValidationSnapshot load(String keyId) {
         License license = licenses.findByKeyIdWithProduct(keyId)
                 .orElseThrow(() -> new NoSuchElementException("License not found: " + keyId));
+        if (license.isOfflineDevice())
+            throw new dev.hg.grantmint.server.offline.OfflineLicenseException(409, "offline_requires_v2");
         TokenFacts token = inspectToken(license);
         Long exp =
                 license.getExpiresAt() == null ? null : license.getExpiresAt().toEpochSecond();

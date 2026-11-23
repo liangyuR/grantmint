@@ -192,6 +192,8 @@ public class GrantmintSecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth.dispatcherTypeMatchers(DispatcherType.ERROR)
                         .permitAll()
+                        .requestMatchers("/v2/licenses/challenges", "/v2/licenses/activate")
+                        .permitAll()
                         .requestMatchers("/webhooks/**")
                         .permitAll()
                         .requestMatchers("/actuator/**")

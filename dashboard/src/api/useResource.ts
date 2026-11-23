@@ -12,7 +12,7 @@ export function useResource<T>(path: string | null) {
     api.get<T>(path).then(
       (data) => { if (!cancelled) setResult({ path, request, data, error: null }); },
       (err: unknown) => {
-        if (!cancelled) setResult({ path, request, data: null, error: err instanceof ApiError ? err.message : 'Failed to load data.' });
+        if (!cancelled) setResult({ path, request, data: null, error: err instanceof ApiError ? err.message : '加载数据失败。' });
       },
     );
     return () => { cancelled = true; };

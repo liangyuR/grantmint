@@ -45,7 +45,8 @@ class MigrationImmutabilityTest {
             "V5__drop_redundant_key_id_active_index.sql",
                     "c80e1561a975aa3dffba29583216a54769b58278620380a54b7b7c146666425c",
             "V6__policy_code_index.sql", "643d98b683e3e0cf3e4d183d4732c635a587fdbf6939c1f7011fa74da50d458d",
-            "V7__audit_index_gaps.sql", "f9c57eab4e3e9ed2a2eb8d9dfe6f9cbcd5d7b8fcd1ddf4a3db6c489d5b396517");
+            "V7__audit_index_gaps.sql", "f9c57eab4e3e9ed2a2eb8d9dfe6f9cbcd5d7b8fcd1ddf4a3db6c489d5b396517",
+            "V8__offline_device_licenses.sql", "7a7cb67fcb42d1ae3b4dda066167f67b78f624c4e5719390f26de671b847a76c");
 
     private static final Pattern VERSIONED = Pattern.compile("V(\\d+)__.+\\.sql");
 

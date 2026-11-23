@@ -21,21 +21,12 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Guard against the security model's one structural blind spot (M13 audit): {@code
- * GrantmintSecurityConfig} is an allowlist of secured path prefixes, with no deny-all fallback
- * chain — deliberately, because a catch-all would also swallow the actuator endpoints on the
- * management port. That design means a controller route mapped OUTSIDE the known prefixes would be
- * silently unprotected by every filter chain. This rule makes that impossible to do by accident:
- * every <em>effective</em> route of every {@code @RestController} (class-level prefix + method
- * mapping, or an absolute method mapping when there is no class-level one) must sit under a prefix
- * one of the security chains covers (or {@code /webhooks}, whose auth is the provider signature,
- * verified before parsing — see WebhookController).
- */
 class SecuredPrefixArchitectureTest {
 
-    /** Must mirror the securityMatcher prefixes in GrantmintSecurityConfig + the webhook surface. */
     private static final List<String> COVERED_PREFIXES = List.of("/admin", "/issuance", "/v1/licenses", "/webhooks");
+
+    private static final List<String> PUBLIC_ACTIVATION_ROUTES =
+            List.of("/v2/licenses/challenges", "/v2/licenses/activate");
 
     private static final JavaClasses SERVER_CLASSES = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
@@ -47,9 +38,8 @@ class SecuredPrefixArchitectureTest {
                 .that()
                 .areAnnotatedWith(RestController.class)
                 .should(mapOnlyUnderCoveredPrefixes())
-                .because("the security config is an allowlist of path prefixes with no deny-all "
-                        + "fallback (the actuator management port rules one out), so a route "
-                        + "outside the known prefixes would be reachable with no auth at all")
+                .because(
+                        "every route must declare its intended security boundary, including the two proof-authenticated activation endpoints")
                 .check(SERVER_CLASSES);
     }
 
@@ -83,8 +73,9 @@ class SecuredPrefixArchitectureTest {
                     return;
                 }
                 for (String path : effectivePaths) {
-                    boolean covered = COVERED_PREFIXES.stream()
-                            .anyMatch(prefix -> path.equals(prefix) || path.startsWith(prefix + "/"));
+                    boolean covered = PUBLIC_ACTIVATION_ROUTES.contains(path)
+                            || COVERED_PREFIXES.stream()
+                                    .anyMatch(prefix -> path.equals(prefix) || path.startsWith(prefix + "/"));
                     if (!covered) {
                         events.add(SimpleConditionEvent.violated(
                                 controller,
