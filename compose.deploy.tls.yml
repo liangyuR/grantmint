@@ -1,0 +1,10 @@
+services:
+  gateway:
+    environment:
+      SITE_ADDRESS: ${GRANTMINT_DOMAIN:?Set GRANTMINT_DOMAIN to a public DNS hostname}
+    ports: !override
+      - "80:80"
+      - "443:443"
+  grantmint-server:
+    environment:
+      GRANTMINT_ADMIN_SESSION_COOKIESECURE: "true"

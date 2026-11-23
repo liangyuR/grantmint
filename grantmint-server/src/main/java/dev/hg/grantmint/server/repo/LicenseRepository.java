@@ -35,6 +35,8 @@ public interface LicenseRepository extends JpaRepository<License, UUID>, JpaSpec
 
     boolean existsByKeyId(String keyId);
 
+    boolean existsByProductId(UUID productId);
+
     /** Backs the {@code grantmint.licenses.active} gauge, sampled on every Prometheus scrape. */
     long countByStatus(LicenseStatus status);
 

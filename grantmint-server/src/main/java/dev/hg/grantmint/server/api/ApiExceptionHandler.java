@@ -3,6 +3,7 @@ package dev.hg.grantmint.server.api;
 import dev.hg.grantmint.core.license.IllegalLicenseTransitionException;
 import dev.hg.grantmint.server.activation.ActivationNotFoundException;
 import dev.hg.grantmint.server.activation.SeatLimitExceededException;
+import dev.hg.grantmint.server.admin.ProductHasLicensesException;
 import dev.hg.grantmint.server.validation.LicenseNotValidException;
 import dev.hg.grantmint.server.validation.RateLimitExceededException;
 import java.util.NoSuchElementException;
@@ -43,6 +44,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<ApiError> handleBadRequest(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(new ApiError("bad_request", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ProductHasLicensesException.class)
+    ResponseEntity<ApiError> handleProductHasLicenses(ProductHasLicensesException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("product_has_licenses", ex.getMessage()));
     }
 
     /**

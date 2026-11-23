@@ -13,6 +13,10 @@ node_modules/
 keys/
 secrets/
 .env
+.env.*
+.cache/
+docker-compose.override.yml
+deploy.env.example
 *.pem
 *.key
 

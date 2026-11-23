@@ -1,4 +1,7 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { ProductProvider, useProducts } from '../products/ProductContext';
+import Alert from './Alert';
+import { inputClasses, secondaryButtonClasses } from './FormField';
 import { useAuth } from '../auth/AuthContext';
 
 const NAV_ITEMS = [
@@ -17,13 +20,26 @@ function navLinkClasses({ isActive }: { isActive: boolean }): string {
 }
 
 export default function Shell() {
+  return <ProductProvider><ProductShell /></ProductProvider>;
+}
+
+function ProductShell() {
   const { admin, logout } = useAuth();
+  const { products, product, loading, error, selectProduct, refreshProducts } = useProducts();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  function changeProduct(id: string) {
+    selectProduct(id);
+    if (location.pathname.startsWith('/licenses/')) navigate('/licenses');
+    if (location.pathname.startsWith('/products/')) navigate(`/products/${id}`);
+  }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex">
+    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col sm:flex-row">
       <nav
         aria-label="Primary"
-        className="w-56 shrink-0 border-r border-gray-800 bg-gray-900 flex flex-col"
+        className="sm:w-56 shrink-0 border-r border-gray-800 bg-gray-900 flex flex-col"
       >
         <div className="px-4 py-4 border-b border-gray-800">
           <span className="text-lg font-semibold tracking-tight text-white">Grantmint</span>
@@ -52,7 +68,21 @@ export default function Shell() {
         </div>
       </nav>
       <main className="flex-1 min-w-0 p-6">
-        <Outlet />
+        <div className="mb-6 space-y-3 border-b border-gray-800 pb-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <label htmlFor="current-product" className="text-sm font-medium">Current product</label>
+            <select id="current-product" className={`${inputClasses} max-w-sm`} value={product?.id ?? ''}
+              disabled={loading || products.length === 0} onChange={(event) => changeProduct(event.target.value)}>
+              {products.length === 0 && <option value="">{loading ? 'Loading products…' : 'No products'}</option>}
+              {products.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.slug})</option>)}
+            </select>
+            {product && <NavLink className={secondaryButtonClasses} to={`/products/${product.id}`}>Product details</NavLink>}
+          </div>
+          {product && <p className="break-all text-xs text-gray-400">Product ID: <span className="font-mono">{product.id}</span></p>}
+          {error && <Alert kind="error">{error} <button type="button" className="underline" onClick={() => void refreshProducts()}>Retry</button></Alert>}
+          {!loading && !error && products.length === 0 && <p className="text-sm text-gray-400">Create a product to manage its policies and licenses.</p>}
+        </div>
+        <div key={product?.id ?? 'no-product'}><Outlet /></div>
       </main>
     </div>
   );

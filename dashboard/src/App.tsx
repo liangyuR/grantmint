@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Shell from './components/Shell'
 import LoginPage from './pages/LoginPage'
 import ProductsPage from './pages/ProductsPage'
+import ProductDetailPage from './pages/ProductDetailPage'
 import PoliciesPage from './pages/PoliciesPage'
 import LicensesPage from './pages/LicensesPage'
 import LicenseDetailDrawer from './pages/LicenseDetailDrawer'
@@ -18,6 +19,7 @@ export default function App() {
           <Route element={<Shell />}>
             <Route index element={<Navigate to="/products" replace />} />
             <Route path="products" element={<ProductsPage />} />
+            <Route path="products/:productId" element={<ProductDetailPage />} />
             <Route path="policies" element={<PoliciesPage />} />
             <Route path="licenses" element={<LicensesPage />}>
               <Route path=":keyId" element={<LicenseDetailDrawer />} />
