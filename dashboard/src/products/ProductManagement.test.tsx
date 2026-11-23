@@ -18,7 +18,7 @@ function mockReads(getDetail = () => detail, includeList = false) {
   });
 }
 function open() {
-  render(<MemoryRouter initialEntries={['/licenses']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Link to="/licenses/license-alpha">打开已有授权</Link><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={['/licenses']}><Link to="/licenses/license-alpha">打开已有授权</Link><App /></MemoryRouter>);
   return userEvent.setup();
 }
 async function ready() { await waitFor(() => expect((screen.getByLabelText('当前应用') as HTMLSelectElement).disabled).toBe(false)); }
@@ -82,7 +82,7 @@ it('会话恢复 → 写请求使用me的CSRF且退出使页面失去授权', as
 it('会话检查未完成 → 登录表单不可提交，避免迟到401覆盖新会话', async () => {
   let finish!: (response: Response) => void;
   vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
-  render(<MemoryRouter initialEntries={['/login']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={['/login']}><App /></MemoryRouter>);
   expect(screen.queryByLabelText('密码')).toBeNull();
   finish(new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }));
   expect(await screen.findByLabelText('密码')).toBeTruthy();
